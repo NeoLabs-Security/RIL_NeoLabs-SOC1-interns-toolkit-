@@ -1,0 +1,95 @@
+<!--
+  NeoLabs VCC synthetic telemetry rules.
+  Custom rule IDs use Wazuh's recommended 100000-120000 range.
+  These rules are intentionally limited to events marked synthetic and carrying
+  the VCC schema fields expected by the pod-scoped collector.
+-->
+<group name="neolabs,vcc,synthetic_training,">
+
+  <rule id="100100" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="synthetic">^true$</field>
+    <field name="schema_version">^1\.</field>
+    <field name="pod_id">^pod-[0-9]{2}$</field>
+    <description>NeoLabs VCC synthetic telemetry event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <rule id="100110" level="5">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^authentication$</field>
+    <field name="outcome">^failure$</field>
+    <description>NeoLabs VCC: Authentication failure for $(user) from $(source_ip).</description>
+    <group>authentication_failed,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="100111" level="9" frequency="5" timeframe="300">
+    <if_matched_sid>100110</if_matched_sid>
+    <same_field>user</same_field>
+    <description>NeoLabs VCC: Repeated authentication failures for the same account within five minutes.</description>
+    <group>authentication_failures,credential_access,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="100112" level="8" frequency="5" timeframe="300">
+    <if_matched_sid>100110</if_matched_sid>
+    <same_field>source_ip</same_field>
+    <description>NeoLabs VCC: One source generated repeated authentication failures within five minutes.</description>
+    <group>authentication_failures,credential_access,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="100120" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^authentication$</field>
+    <field name="outcome">^success$</field>
+    <description>NeoLabs VCC: Successful authentication for $(user) from $(source_ip).</description>
+    <group>authentication_success,</group>
+  </rule>
+
+  <rule id="100121" level="10" frequency="2" timeframe="900">
+    <if_matched_sid>100110</if_matched_sid>
+    <field name="event_type">^authentication$</field>
+    <field name="outcome">^success$</field>
+    <same_field>user</same_field>
+    <description>NeoLabs VCC: Authentication success followed earlier failures for the same account.</description>
+    <group>authentication_success_after_failures,credential_access,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="100130" level="7">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^account_change$</field>
+    <field name="action">^(password_reset|email_change|mfa_change|role_change)$</field>
+    <field name="outcome">^success$</field>
+    <description>NeoLabs VCC: Sensitive account change completed for $(user).</description>
+    <group>account_change,identity,</group>
+  </rule>
+
+  <rule id="100140" level="8">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^authorization$</field>
+    <field name="outcome">^denied$</field>
+    <field name="reason">^(cross_pod_scope|insufficient_role|object_ownership)$</field>
+    <description>NeoLabs VCC: Authorization request was denied by a protected access-control decision.</description>
+    <group>authorization_denied,access_control,</group>
+  </rule>
+
+  <rule id="100150" level="9">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^telemetry_health$</field>
+    <field name="status">^(disconnected|parser_failure|schema_rejected|clock_skew|duplicate_ingestion)$</field>
+    <description>NeoLabs VCC: Telemetry quality or availability problem detected.</description>
+    <group>telemetry_health,visibility_gap,</group>
+  </rule>
+
+</group>
