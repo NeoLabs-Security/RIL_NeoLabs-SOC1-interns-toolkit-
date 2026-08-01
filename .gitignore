@@ -13,6 +13,11 @@ wazuh-stack/data/
 wazuh-stack/backups/
 wazuh-stack/generated/
 wazuh-stack/.state/
+wazuh-stack/state/
+wazuh-stack/secrets/
+
+# Generated publications
+dist/
 
 # Local tooling
 .DS_Store
