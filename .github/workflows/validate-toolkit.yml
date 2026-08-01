@@ -1,0 +1,96 @@
+name: Validate SOC L1 Toolkit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compile and test Python
+        run: |
+          python -m compileall -q wazuh-stack/collector wazuh-stack/scripts
+          python -m unittest discover -s wazuh-stack/collector -p 'test_*.py' -v
+
+      - name: Validate shell syntax
+        run: |
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find wazuh-stack/scripts -type f -name '*.sh' -print0)
+
+      - name: Validate XML and NDJSON fixtures
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          rule_file = Path("wazuh-stack/config/rules/neolabs_vcc_rules.xml")
+          ET.parse(rule_file)
+
+          required = {
+              "schema_version",
+              "event_id",
+              "event_time",
+              "pod_id",
+              "event_type",
+              "synthetic",
+          }
+          for path in Path("sample-logs").rglob("*.ndjson"):
+              event_ids = set()
+              for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                  if not raw_line.strip():
+                      continue
+                  event = json.loads(raw_line)
+                  missing = required.difference(event)
+                  if missing:
+                      raise SystemExit(f"{path}:{line_number}: missing {sorted(missing)}")
+                  if event["synthetic"] is not True:
+                      raise SystemExit(f"{path}:{line_number}: event is not synthetic")
+                  if event["event_id"] in event_ids:
+                      raise SystemExit(f"{path}:{line_number}: duplicate event_id")
+                  event_ids.add(event["event_id"])
+              if not event_ids:
+                  raise SystemExit(f"{path}: fixture is empty")
+          PY
+
+      - name: Validate Docker Compose structure
+        run: |
+          cp wazuh-stack/.env.example wazuh-stack/.env
+          chmod 600 wazuh-stack/.env
+          sed -i 's/CHANGE_ME_GENERATE_STRONG_SECRET/0123456789abcdef0123456789abcdef0123456789abcdef/g' wazuh-stack/.env
+          docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
+
+      - name: Check repository safety boundaries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          forbidden_suffixes = {".key", ".p12", ".pfx"}
+          forbidden_names = {".env", "client.crt", "ca.crt", "enrolment.json", "assigned-pod"}
+          violations = []
+          for path in Path(".").rglob("*"):
+              if ".git" in path.parts or not path.is_file():
+                  continue
+              if path.name in forbidden_names or path.suffix.lower() in forbidden_suffixes:
+                  violations.append(str(path))
+          if violations:
+              raise SystemExit("Forbidden credential-like files committed:\n" + "\n".join(violations))
+          PY
