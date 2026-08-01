@@ -28,7 +28,7 @@ A source being listed here does not mean its wording may be copied. NeoLabs mate
 | ID | Authority | Source | Use in toolkit | Status / caution |
 |---|---|---|---|---|
 | WAZUH-DOC-01 | Wazuh | [Current documentation](https://documentation.wazuh.com/current/) | Primary source for architecture, configuration, dashboard, WQL, decoders, rules and troubleshooting | Version-sensitive; every tutorial must state tested release |
-| WAZUH-DOCKER-01 | Wazuh | [wazuh-docker repository](https://github.com/wazuh/wazuh-docker) | Official container topology and certificate-generation files | NeoLabs baseline currently pins `v4.14.6`; upgrades require testing |
+| WAZUH-DOCKER-01 | Wazuh | [wazuh-docker repository](https://github.com/wazuh/wazuh-docker) | Official container topology and certificate-generation files | NeoLabs baseline currently pins `v4.14.7`, released 29 July 2026; upgrades require testing |
 | WAZUH-JSON-01 | Wazuh | [JSON decoder](https://documentation.wazuh.com/current/user-manual/ruleset/decoders/json-decoder.html) | Parsing VCC synthetic JSON telemetry and teaching dynamic fields | Test nested arrays and null handling with supplied datasets |
 | WAZUH-RULE-01 | Wazuh | [Custom rules](https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html) | Safe local rule authoring, identifiers and validation | Custom IDs must remain within approved local ranges |
 | WAZUH-TEST-01 | Wazuh | [Testing decoders and rules](https://documentation.wazuh.com/current/user-manual/ruleset/testing.html) | `wazuh-logtest` workflow and rule validation | Students test synthetic records only |
