@@ -34,6 +34,7 @@ jobs:
             libopenjp2-7
           python -m pip install --disable-pip-version-check \
             Markdown==3.6 \
+            pydyf==0.10.0 \
             WeasyPrint==62.3
 
       - name: Validate publication script
@@ -51,7 +52,10 @@ jobs:
           test -s dist/publications/NeoLabs_SOC_L1_Investigation_Templates.pdf
           test -s dist/publications/NeoLabs_SOC_L1_Lab_Pack.pdf
           test -s dist/publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf
-          find dist/publications -type f -name '*.pdf' -size -10k -print -quit | grep -q '^$'
+          if find dist/publications -type f -name '*.pdf' -size -10k -print -quit | grep -q .; then
+            echo "One or more generated PDFs are unexpectedly small." >&2
+            exit 1
+          fi
 
       - name: Upload publication artifacts
         uses: actions/upload-artifact@v4
