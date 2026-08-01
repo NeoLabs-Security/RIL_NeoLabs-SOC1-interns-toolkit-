@@ -77,18 +77,22 @@ jobs:
           chmod 600 wazuh-stack/.env
           sed -i 's/CHANGE_ME_GENERATE_STRONG_SECRET/0123456789abcdef0123456789abcdef0123456789abcdef/g' wazuh-stack/.env
           docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
+          rm -f wazuh-stack/.env
 
       - name: Check repository safety boundaries
         run: |
           python - <<'PY'
+          import subprocess
           from pathlib import Path
 
           forbidden_suffixes = {".key", ".p12", ".pfx"}
           forbidden_names = {".env", "client.crt", "ca.crt", "enrolment.json", "assigned-pod"}
+          tracked = subprocess.check_output(["git", "ls-files", "-z"])
           violations = []
-          for path in Path(".").rglob("*"):
-              if ".git" in path.parts or not path.is_file():
+          for raw_path in tracked.split(b"\0"):
+              if not raw_path:
                   continue
+              path = Path(raw_path.decode("utf-8"))
               if path.name in forbidden_names or path.suffix.lower() in forbidden_suffixes:
                   violations.append(str(path))
           if violations:
