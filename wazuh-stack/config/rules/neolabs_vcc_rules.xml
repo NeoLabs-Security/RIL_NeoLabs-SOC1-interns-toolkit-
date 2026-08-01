@@ -28,7 +28,7 @@
 
   <rule id="100111" level="9" frequency="5" timeframe="300">
     <if_matched_sid>100110</if_matched_sid>
-    <same_field>user</same_field>
+    <same_user />
     <description>NeoLabs VCC: Repeated authentication failures for the same account within five minutes.</description>
     <group>authentication_failures,credential_access,</group>
     <mitre>
@@ -58,7 +58,7 @@
     <if_matched_sid>100110</if_matched_sid>
     <field name="event_type">^authentication$</field>
     <field name="outcome">^success$</field>
-    <same_field>user</same_field>
+    <same_user />
     <description>NeoLabs VCC: Authentication success followed earlier failures for the same account.</description>
     <group>authentication_success_after_failures,credential_access,</group>
     <mitre>
