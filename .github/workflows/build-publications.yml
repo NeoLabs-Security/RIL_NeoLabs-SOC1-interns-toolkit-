@@ -1,0 +1,62 @@
+name: Build NeoLabs SOC Publications
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+permissions:
+  contents: read
+
+jobs:
+  publications:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PDF rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 \
+            libpangoft2-1.0-0 \
+            libjpeg-turbo8 \
+            libopenjp2-7
+          python -m pip install --disable-pip-version-check \
+            Markdown==3.6 \
+            WeasyPrint==62.3
+
+      - name: Validate publication script
+        run: python -m py_compile scripts/build-publications.py
+
+      - name: Build branded PDF set
+        env:
+          PUBLICATION_VERSION: pr-${{ github.event.pull_request.number || github.run_number }}
+        run: python scripts/build-publications.py
+
+      - name: Verify generated publications
+        run: |
+          test -s dist/publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf
+          test -s dist/publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf
+          test -s dist/publications/NeoLabs_SOC_L1_Investigation_Templates.pdf
+          test -s dist/publications/NeoLabs_SOC_L1_Lab_Pack.pdf
+          test -s dist/publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf
+          find dist/publications -type f -name '*.pdf' -size -10k -print -quit | grep -q '^$'
+
+      - name: Upload publication artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: neolabs-soc-l1-publications
+          path: dist/publications/
+          if-no-files-found: error
+          retention-days: 30
