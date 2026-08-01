@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -26,14 +26,24 @@ jobs:
 
       - name: Compile and test Python
         run: |
-          python -m compileall -q wazuh-stack/collector wazuh-stack/scripts
+          python -m compileall -q wazuh-stack/collector wazuh-stack/scripts scripts
           python -m unittest discover -s wazuh-stack/collector -p 'test_*.py' -v
 
       - name: Validate shell syntax
         run: |
           while IFS= read -r -d '' file; do
             bash -n "$file"
-          done < <(find wazuh-stack/scripts -type f -name '*.sh' -print0)
+          done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
+
+      - name: Test Linux workstation compatibility profile
+        env:
+          SOC_MIN_MEMORY_GIB: "1"
+          SOC_RECOMMENDED_MEMORY_GIB: "1"
+          SOC_MIN_DISK_GIB: "1"
+        run: bash wazuh-stack/scripts/compatibility-check.sh
+
+      - name: Rehearse Docker volume backup and restore
+        run: bash wazuh-stack/tests/backup-restore-rehearsal.sh
 
       - name: Validate XML and NDJSON fixtures
         run: |
@@ -76,8 +86,31 @@ jobs:
           cp wazuh-stack/.env.example wazuh-stack/.env
           chmod 600 wazuh-stack/.env
           sed -i 's/CHANGE_ME_GENERATE_STRONG_SECRET/0123456789abcdef0123456789abcdef0123456789abcdef/g' wazuh-stack/.env
-          docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
+          COMPOSE_PROJECT_NAME=neolabs-soc1-wazuh \
+            docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
           rm -f wazuh-stack/.env
+
+      - name: Validate publication source set
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          script = Path("scripts/build-publications.py")
+          ast.parse(script.read_text(encoding="utf-8"), filename=str(script))
+          required = [
+              "docs/secops-foundations/05-windows-and-sysmon-investigation.md",
+              "docs/secops-foundations/06-linux-web-and-cloud-log-investigation.md",
+              "docs/secops-foundations/07-wazuh-alert-investigation-and-tuning.md",
+              "docs/secops-foundations/08-case-management-reporting-and-capstone.md",
+              "docs/setup/WORKSTATION_COMPATIBILITY.md",
+              "docs/setup/BACKUP_AND_RECOVERY.md",
+              "docs/brand/print.css",
+          ]
+          missing = [path for path in required if not Path(path).is_file()]
+          if missing:
+              raise SystemExit("Missing publication inputs:\n" + "\n".join(missing))
+          PY
 
       - name: Check repository safety boundaries
         run: |
@@ -87,14 +120,19 @@ jobs:
 
           forbidden_suffixes = {".key", ".p12", ".pfx"}
           forbidden_names = {".env", "client.crt", "ca.crt", "enrolment.json", "assigned-pod"}
+          forbidden_directories = {"backups", "secrets", "dist"}
           tracked = subprocess.check_output(["git", "ls-files", "-z"])
           violations = []
           for raw_path in tracked.split(b"\0"):
               if not raw_path:
                   continue
               path = Path(raw_path.decode("utf-8"))
-              if path.name in forbidden_names or path.suffix.lower() in forbidden_suffixes:
+              if (
+                  path.name in forbidden_names
+                  or path.suffix.lower() in forbidden_suffixes
+                  or any(part in forbidden_directories for part in path.parts)
+              ):
                   violations.append(str(path))
           if violations:
-              raise SystemExit("Forbidden credential-like files committed:\n" + "\n".join(violations))
+              raise SystemExit("Forbidden credential, backup or generated files committed:\n" + "\n".join(violations))
           PY
