@@ -1,0 +1,29 @@
+# Local environment and secrets
+.env
+*.env.local
+secrets/
+certs/generated/
+*.key
+*.pem
+*.p12
+*.token
+
+# Wazuh runtime and backups
+wazuh-stack/data/
+wazuh-stack/backups/
+wazuh-stack/generated/
+wazuh-stack/.state/
+wazuh-stack/state/
+wazuh-stack/secrets/
+
+# Generated publications
+dist/
+
+# Local tooling
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+node_modules/
