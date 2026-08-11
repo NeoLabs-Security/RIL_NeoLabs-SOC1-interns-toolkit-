@@ -26,8 +26,14 @@ jobs:
 
       - name: Compile and test Python
         run: |
-          python -m compileall -q wazuh-stack/collector wazuh-stack/scripts scripts
+          python -m compileall -q wazuh-stack/collector wazuh-stack/scripts scripts tools
           python -m unittest discover -s wazuh-stack/collector -p 'test_*.py' -v
+
+      - name: Validate installed NeoLabs command
+        run: |
+          python -m pip install --disable-pip-version-check --no-deps -e .
+          neolabs --help >/dev/null
+          neolabs pod --help >/dev/null
 
       - name: Validate shell syntax
         run: |
