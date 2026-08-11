@@ -1,0 +1,51 @@
+name: Build Week 02 Learning Pack
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "docs/week-02/ghost-login-learning-pack.md"
+      - "docs/brand/**"
+      - "scripts/build-weekly-publication.py"
+      - ".github/workflows/build-week-02-learning-pack.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout toolkit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PDF dependency
+        run: python -m pip install --disable-pip-version-check reportlab==4.2.5
+
+      - name: Build NeoLabs Week 02 PDF
+        run: |
+          python scripts/build-weekly-publication.py \
+            --source docs/week-02/ghost-login-learning-pack.md \
+            --output publications/NeoLabs_SOC_L1_Week_02_Ghost_Login.pdf \
+            --track "SOC LEVEL 1" \
+            --week "Week 02"
+
+      - name: Commit generated publication
+        run: |
+          git config user.name "neolabs-publications-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add publications/NeoLabs_SOC_L1_Week_02_Ghost_Login.pdf
+          if git diff --cached --quiet; then
+            echo "Publication is already current."
+            exit 0
+          fi
+          git commit -m "Build branded Week 02 SOC learning pack"
+          git push
