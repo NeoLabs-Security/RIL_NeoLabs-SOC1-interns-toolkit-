@@ -15,14 +15,14 @@ It contains NeoLabs-branded educational material, synthetic telemetry/labs, anal
 ## Student flow
 
 1. Read [`START_HERE.md`](START_HERE.md) and [`LEARNING_PATH.md`](LEARNING_PATH.md).
-2. Prepare the approved local [`wazuh-stack/`](wazuh-stack/).
+2. Prepare the approved local [`wazuh-stack/`](wazuh-stack/), then install the repo CLI once with `python3 -m pip install --user -e .`.
 3. Receive your pod number and private NeoLabs Access Code through the approved private channel.
 4. Authenticate and connect:
 
 ```bash
-python3 tools/neolabs.py login
-python3 tools/neolabs.py connect
-python3 tools/neolabs.py status
+neolabs login
+neolabs connect
+neolabs status
 ```
 
 5. Wazuh enrols through the existing certificate-based SOC control plane and receives telemetry only for the server-assigned pod.
@@ -61,4 +61,4 @@ SOC interns do not choose a telemetry target. The broker binds the generic inter
 
 ## Release status
 
-The toolkit on `main` contains the student-side broker client and the preconfigured SOC stack. Live use still depends on the VCC broker being deployed/enabled, operator-created cohort assignments and successful launch checks for the current scenario.
+The toolkit on `main` contains the installable student broker client, the preconfigured SOC stack and the current branded Week 2 learning pack. Live use still depends on the VCC broker being deployed/enabled, operator-created cohort assignments and successful launch checks for the current scenario.
