@@ -14,6 +14,15 @@ It contains NeoLabs-branded educational materials, synthetic sample telemetry, g
 6. Run the workstation compatibility check before deploying [`wazuh-stack/`](wazuh-stack/).
 7. Use only operator-issued VCC enrolment details; never invent or change a pod assignment locally.
 
+## Important navigation note
+
+The numbered SecOps documents **03 and 04 are present** under `docs/secops-foundations/` and are linked from `docs/README.md`:
+
+- `docs/secops-foundations/03-siem-pipelines-and-log-quality.md`
+- `docs/secops-foundations/04-incident-response-and-playbook-development.md`
+
+The path `labs/local-access-control/` is **not a SOC lab**. It belongs to the separate Grey-Box Pentesting toolkit. If you are following instructions from that directory while you are assigned to SOC L1, you are in the wrong repository.
+
 ## Version 1 contents
 
 - eight beginner-to-intermediate Security Operations modules covering foundations, triage, SIEM pipelines, incident response, Windows/Sysmon, Linux/web/cloud investigations, Wazuh investigation and safe tuning, case management and capstone reporting;
