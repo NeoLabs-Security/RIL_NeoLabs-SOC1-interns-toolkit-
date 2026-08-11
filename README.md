@@ -4,6 +4,14 @@ The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side **Learn + 
 
 It contains NeoLabs-branded educational material, synthetic telemetry/labs, analyst templates, a preconfigured local Wazuh stack and the NeoLabs pod-access client. Official weekly assignments, evidence and graded submissions belong in the separate central assignments repository.
 
+## Current week
+
+**Week 02 — The Ghost Login**
+
+- Learning source: `docs/week-02/ghost-login-learning-pack.md`
+- Branded PDF: `publications/NeoLabs_SOC_L1_Week_02_Ghost_Login.pdf`
+- Practical task: issued through `RIL_NeoLabs-Intern-Assignments`
+
 ## Student flow
 
 1. Read [`START_HERE.md`](START_HERE.md) and [`LEARNING_PATH.md`](LEARNING_PATH.md).
