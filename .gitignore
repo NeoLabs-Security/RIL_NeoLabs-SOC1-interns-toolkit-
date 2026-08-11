@@ -8,6 +8,10 @@ certs/generated/
 *.p12
 *.token
 
+# NeoLabs pod access runtime
+runtime/
+.neolabs/
+
 # Wazuh runtime and backups
 wazuh-stack/data/
 wazuh-stack/backups/
