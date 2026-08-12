@@ -1,0 +1,34 @@
+name: Fix Log Literacy archive part 00
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-log-literacy-part00.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Truncate and verify original chunk
+        run: |
+          set -euo pipefail
+          head -c 8000 docs/log-literacy/source/part-00.b64 > /tmp/part-00.b64
+          got=$(sha256sum /tmp/part-00.b64 | cut -d' ' -f1)
+          test "$got" = 'b35666509ed76df65bf9af76eb6cc4fc409fd60a5d651493e6bf81cf239aa5eb'
+          mv /tmp/part-00.b64 docs/log-literacy/source/part-00.b64
+          test "$(wc -c < docs/log-literacy/source/part-00.b64)" -eq 8000
+      - name: Commit repaired archive chunk
+        run: |
+          git config user.name "neolabs-publications-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/log-literacy/source/part-00.b64
+          git commit -m "Repair archived Log Literacy source chunk"
+          git push
