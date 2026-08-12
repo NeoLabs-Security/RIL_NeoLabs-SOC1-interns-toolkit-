@@ -1,0 +1,53 @@
+name: Build NeoLabs Log Literacy Manual v2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "docs/log-literacy/source/**"
+      - "scripts/build-log-literacy-archive.py"
+      - ".github/workflows/build-log-literacy-manual-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify archived source and reconstruct exact manual text
+        run: |
+          cat > /tmp/log-literacy.sha256 <<'EOF'
+          b35666509ed76df65bf9af76eb6cc4fc409fd60a5d651493e6bf81cf239aa5eb  docs/log-literacy/source/part-00.b64
+          d312f4bfea3887b8baa7f31e941e27c0da38a9be15993bec3468025e65dbaead  docs/log-literacy/source/part-01.b64
+          c25e9b03067adadf1c8a85cb751f7cb3d4663e4311bc1ccdc27bd4d8e333717b  docs/log-literacy/source/part-02.b64
+          a757bc37af913567ed9ae4b842c821aa189dd1169711bacc0b09f25c56793ddb  docs/log-literacy/source/part-03.b64
+          d4288dccf9f2d89f8f42ff650e2e5f1a9db5eaff5656608fcaf966b58bcda1fe  docs/log-literacy/source/part-04.b64
+          EOF
+          sha256sum -c /tmp/log-literacy.sha256
+          cat docs/log-literacy/source/part-*.b64 | tr -d '\n\r ' | base64 --decode | gzip --decompress > /tmp/log-literacy.txt
+          test -s /tmp/log-literacy.txt
+          grep -q "Log Literacy for Cybersecurity Analysts" /tmp/log-literacy.txt
+          grep -q "MODULE 20" /tmp/log-literacy.txt
+      - name: Install PDF renderer
+        run: python -m pip install --disable-pip-version-check reportlab==4.2.5
+      - name: Build branded student manual
+        run: |
+          python scripts/build-log-literacy-archive.py
+          test -s publications/01_NeoLabs_Log_Literacy_for_Cybersecurity_Analysts.pdf
+          test "$(stat -c%s publications/01_NeoLabs_Log_Literacy_for_Cybersecurity_Analysts.pdf)" -gt 50000
+      - name: Commit publication
+        run: |
+          git config user.name "neolabs-publications-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add publications/01_NeoLabs_Log_Literacy_for_Cybersecurity_Analysts.pdf
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Publish checksum-verified branded Log Literacy manual"
+          git push
