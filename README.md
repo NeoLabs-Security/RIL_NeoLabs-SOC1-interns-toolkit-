@@ -2,83 +2,107 @@
 
 The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side **Learn + Connect + Operate** repository for authorised SOC training through the VCC Security Lab.
 
-It contains NeoLabs-branded educational material, synthetic telemetry/labs, analyst templates, a preconfigured local Wazuh stack and the NeoLabs pod-access client. Official weekly assignments, evidence and graded submissions belong in the separate central assignments repository.
+## 🚀 WEEK 1 — START HERE
 
-## Current week
+**Scenario:** Operation Night Watch  
+**Goal:** learn what normal VCC activity looks like before later incident scenarios begin.
 
-**Week 02 — The Ghost Login**
+### 1. Read the Week 1 pack
 
-- Learning source: `docs/week-02/ghost-login-learning-pack.md`
-- Branded PDF: `publications/NeoLabs_SOC_L1_Week_02_Ghost_Login.pdf`
-- Practical task: issued through `RIL_NeoLabs-Intern-Assignments`
+- Source: [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md)
+- Branded PDF: [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf)
 
-## Student flow
+### 2. Install the NeoLabs access client
 
-1. Read [`START_HERE.md`](START_HERE.md) and [`LEARNING_PATH.md`](LEARNING_PATH.md).
-2. Prepare the approved local [`wazuh-stack/`](wazuh-stack/), then install the repo CLI once with `python3 -m pip install --user -e .`.
-3. Receive your pod number, stable NeoLabs lab URL and private NeoLabs Access Code through the approved private channel.
-4. Authenticate and connect:
+```bash
+python -m pip install -e .
+```
+
+### 3. Prepare Wazuh
+
+Follow [`wazuh-stack/README.md`](wazuh-stack/README.md), run its preflight/setup steps and confirm the local stack is healthy.
+
+### 4. Authenticate with your private onboarding details
+
+Set the NeoLabs lab gateway URL supplied by the programme, then run:
 
 ```bash
 neolabs login
-neolabs connect
 neolabs status
+neolabs pod info
+neolabs connect
 ```
 
-5. `neolabs connect` follows the current NeoLabs runtime automatically:
-   - **LIVE** — Wazuh uses the existing certificate-based SOC control plane and receives telemetry only for the server-assigned pod.
-   - **REPLAY** — the large VCC server can be off; the client downloads only your pod/scenario S3 telemetry packs, validates them and appends them to the same Wazuh telemetry file.
-   - **CLOUD_LIVE / ENDPOINT_LIVE** — archived/approved cloud or endpoint telemetry remains available even when the main VCC EC2 is off.
-6. Use `neolabs evidence` when the current task includes approved native CloudTrail/S3/endpoint evidence.
-7. Complete the week's GitHub Issue and submit to `RIL_NeoLabs-Intern-Assignments`.
+Enter only **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
 
-The original security-event `event_time` is preserved during replay. A separate `neolabs_replay` field records when and from which S3 object the event was replayed.
+### 5. Complete Operation Night Watch
 
-The student never needs to manually replace a pod IP or know whether NeoLabs has stopped/restarted the underlying EC2.
+Use the Week 1 pack for the exact task and deliverables. Official submissions belong in the separate `RIL_NeoLabs-Intern-Assignments` repository, not this toolkit.
 
-## Toolkit contents
+## Week 1 study shelf
 
-- eight beginner-to-intermediate Security Operations modules;
-- Wazuh architecture, dashboard, deployment, troubleshooting and recovery guides;
-- WQL/OpenSearch/`jq`/Linux/PowerShell query references;
-- incident-report, evidence-register and query-journal templates;
-- synthetic authentication data and guided defensive labs;
-- pinned containerised Wazuh manager, indexer, dashboard and pod-scoped telemetry collector;
-- local secret generation, preflight, health, reset, backup and restore controls;
-- stable serverless Access Code login with live SOC enrolment handoff when required;
-- S3 replay ingestion into the same Wazuh telemetry volume;
-- locally generated private key + client certificate for live pod-scoped telemetry;
-- branded PDF publication pipeline and repository validation workflows.
+Use `publications/` in this order:
 
-## Architecture boundary
+1. `00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf` — what to do this week.
+2. `01_NeoLabs_Log_Literacy_for_Cybersecurity_Analysts.pdf` — how to read/correlate logs.
+3. `02_NeoLabs_SOC_L1_SecOps_Field_Guide.pdf` — evidence-first SecOps workflow.
+4. `NeoLabs_SOC_L1_Analyst_Handbook.pdf` — deeper analyst reference.
+5. `NeoLabs_SOC_L1_Wazuh_Guide.pdf` — Wazuh setup/investigation reference.
+6. `NeoLabs_SOC_L1_Complete_Toolkit.pdf` — long-form reference; do not try to read it all before starting Week 1.
 
-**Toolkit repo:** Learn + Connect + Operate  
-**Replay Gateway:** Always-available Authentication + Runtime State + S3 Replay  
-**VCC Security Lab:** On-demand Target + Live Telemetry + Scenario  
-**Private S3:** Durable pod-scoped Telemetry + Native Evidence  
-**Central Assignment repo:** Task + Evidence + Submission + Assessment
+The Markdown source modules under `docs/` remain available for search, notes and future weeks.
 
-SOC interns do not choose a telemetry target. Live pod scope is certificate-controlled; replay pod scope is derived from the authenticated assignment and S3 prefix.
+## What is preconfigured here
+
+- installable `neolabs` pod-access/authentication client;
+- containerised Wazuh manager/indexer/dashboard stack;
+- NeoLabs pod-scoped telemetry collector and custom rules;
+- live mTLS enrolment and automatic S3 replay support;
+- preflight, health, backup, restore and reset controls;
+- Log Literacy/SecOps/Wazuh educational material;
+- evidence, query-journal and incident-report templates;
+- synthetic labs/sample telemetry;
+- branded PDF publication and validation workflows.
 
 ## Useful commands
 
 ```text
-neolabs login       authenticate with your pod + Access Code
-neolabs connect     automatically use live telemetry or S3 replay
-neolabs status      show LIVE / REPLAY / CLOUD_LIVE / ENDPOINT_LIVE state
-neolabs evidence    download approved native evidence for your pod/scenario
-neolabs pod info    show server-assigned pod information
-neolabs disconnect  remove the local access-gateway session
+neolabs login       authenticate with your assigned pod + private Access Code
+neolabs connect     use the current authorised LIVE/replay SOC surface
+neolabs status      show current runtime, pod and scenario
+neolabs evidence    download approved evidence for your pod/scenario
+neolabs pod info    show the server-assigned pod
+neolabs disconnect  remove the local gateway session
+```
+
+## Repository map
+
+```text
+README.md                 ← you are here
+START_HERE.md             ← workstation/orientation detail
+docs/week-01/             ← current Week 1 instructions
+publications/             ← branded student PDFs
+wazuh-stack/              ← preconfigured SOC tooling
+tools/neolabs.py          ← pod access/authenticator client
+templates/                ← evidence/report templates
+sample-logs/ + labs/      ← safe practice material
+research/ + references/   ← deeper reference material
 ```
 
 ## Security rules
 
-- Never commit Access Codes, broker sessions, enrolment tokens, certificates, private keys, private URLs or unredacted evidence.
-- Never edit a local pod label in an attempt to access another pod.
+- Never commit/share Access Codes, broker sessions, enrolment tokens, certificates or private keys.
+- Never edit a pod label or target in an attempt to reach another pod.
 - Use only synthetic data and authorised VCC resources.
-- Keep `runtime/`, Wazuh state, replay state and certificate material local; these paths are ignored by Git.
+- Keep `runtime/`, Wazuh state, replay state and certificate material local.
 - Students never receive AWS credentials or bucket-wide S3 access.
+- Stop and notify a mentor if another pod, real personal data, a credential or unexpected infrastructure access appears.
 
-## Release status
+## Runtime design
 
-The toolkit on `main` contains the installable student client, preconfigured SOC stack, automatic live/replay behavior and the current branded Week 2 learning pack. Real cohort use still depends on the NeoLabs Replay Gateway/live broker being deployed, operator-created cohort assignments and the current scenario launch/replay checks.
+**Toolkit:** Learn + Connect + Operate  
+**Replay Gateway:** Stable Authentication + Runtime State + S3 Replay  
+**VCC Security Lab:** Scheduled Live Target/Telemetry + Scenario  
+**Central Assignments:** Task submission + assessment
+
+Week 1 is intentionally hybrid: SOC can investigate the archived pod-scoped baseline even when the large VCC server is not continuously online.
