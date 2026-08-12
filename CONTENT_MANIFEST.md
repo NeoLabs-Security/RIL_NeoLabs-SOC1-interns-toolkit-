@@ -10,6 +10,7 @@ This file tracks the authoritative student-facing materials included in the NeoL
 | Wazuh Dashboard Tutorial | Orientation, filters, alert-to-evidence pivots, timeline construction and reporting workflow | Complete for Version 1; screenshot-led exercises may be refreshed after rollout feedback |
 | Query and Command Reference | WQL, OpenSearch, `jq`, `grep`, `journalctl`, `ausearch` and PowerShell investigation references | Complete for Version 1 |
 | Practice Labs | Guided synthetic authentication investigation plus capstone method and assessment rubric | Complete for Version 1 baseline; later scenario packs are delivered through assignments |
+| Credential Storm Replay Lab | Week 3 post-exercise SOC replay investigation for `w03-credential-storm`, covering baseline analysis, credential-stuffing classification, session pivots, timeline construction, detection proposal and escalation reasoning | Draft on `assignment/w03-credential-storm-replay`; student-facing and contains no ground truth |
 | Sample Logs | Sanitised synthetic authentication dataset and schema requirements | Complete for Version 1 baseline |
 | Incident Report Template | Professional investigation report structure with facts, analysis, confidence and recommendations | Complete |
 | Evidence and Query Templates | Evidence register, timeline and reproducible query journal | Complete |
