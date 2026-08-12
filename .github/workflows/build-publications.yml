@@ -8,16 +8,19 @@ on:
       - "codex/**"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publications:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,17 +45,17 @@ jobs:
 
       - name: Build branded PDF set
         env:
-          PUBLICATION_VERSION: pr-${{ github.event.pull_request.number || github.run_number }}
-        run: python scripts/build-publications.py
+          PUBLICATION_VERSION: week1-prod-${{ github.run_number }}
+        run: python scripts/build-publications.py --output-dir publications
 
       - name: Verify generated publications
         run: |
-          test -s dist/publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf
-          test -s dist/publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf
-          test -s dist/publications/NeoLabs_SOC_L1_Investigation_Templates.pdf
-          test -s dist/publications/NeoLabs_SOC_L1_Lab_Pack.pdf
-          test -s dist/publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf
-          if find dist/publications -type f -name '*.pdf' -size -10k -print -quit | grep -q .; then
+          test -s publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf
+          test -s publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf
+          test -s publications/NeoLabs_SOC_L1_Investigation_Templates.pdf
+          test -s publications/NeoLabs_SOC_L1_Lab_Pack.pdf
+          test -s publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf
+          if find publications -maxdepth 1 -type f -name 'NeoLabs_SOC_L1_*.pdf' -size -10k -print -quit | grep -q .; then
             echo "One or more generated PDFs are unexpectedly small." >&2
             exit 1
           fi
@@ -61,6 +64,23 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: neolabs-soc-l1-publications
-          path: dist/publications/
+          path: publications/NeoLabs_SOC_L1_*.pdf
           if-no-files-found: error
           retention-days: 30
+
+      - name: Commit reference publications to main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "neolabs-publications-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf \
+                  publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf \
+                  publications/NeoLabs_SOC_L1_Investigation_Templates.pdf \
+                  publications/NeoLabs_SOC_L1_Lab_Pack.pdf \
+                  publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf
+          if git diff --cached --quiet; then
+            echo "Reference publications already current."
+            exit 0
+          fi
+          git commit -m "Publish branded SOC L1 reference PDFs"
+          git push
