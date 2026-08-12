@@ -1,0 +1,28 @@
+name: Verify Log Literacy archive
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/verify-log-archive.yml'
+      - 'docs/log-literacy/source/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect chunks and reconstructed source
+        run: |
+          set -euo pipefail
+          sha256sum docs/log-literacy/source/part-*.b64
+          wc -c docs/log-literacy/source/part-*.b64
+          cat docs/log-literacy/source/part-*.b64 | tr -d '\n\r ' | base64 --decode | gzip --decompress > /tmp/log-literacy.txt
+          echo "RECONSTRUCTED_SHA=$(sha256sum /tmp/log-literacy.txt | cut -d' ' -f1)"
+          echo "RECONSTRUCTED_BYTES=$(wc -c < /tmp/log-literacy.txt)"
+          grep -q 'Log Literacy for Cybersecurity Analysts' /tmp/log-literacy.txt
+          grep -q 'MODULE 20' /tmp/log-literacy.txt
+          test "$(sha256sum /tmp/log-literacy.txt | cut -d' ' -f1)" = '255560080c54165a0854bafc62089dbf9688f72ca9204e6cce2a94be0a91c397'
