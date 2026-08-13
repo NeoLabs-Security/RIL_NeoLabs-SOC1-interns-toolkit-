@@ -35,20 +35,22 @@ neolabs connect
 
 Enter only **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
 
+For Week 1, the gateway deliberately returns **REPLAY** to SOC interns. `neolabs connect` downloads only your assigned pod's signed archived telemetry and feeds it into the same local Wazuh workflow. You do not need the live VCC SOC port to be publicly exposed.
+
 ### 5. Complete Operation Night Watch
 
 Use the Week 1 pack for the exact task and deliverables. Official submissions belong in the separate `RIL_NeoLabs-Intern-Assignments` repository, not this toolkit.
 
 ## Week 1 study shelf
 
-Use `publications/` in this order:
+Use these materials in this order:
 
-1. `00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf` — what to do this week.
-2. `01_NeoLabs_Log_Literacy_for_Cybersecurity_Analysts.pdf` — how to read/correlate logs.
-3. `02_NeoLabs_SOC_L1_SecOps_Field_Guide.pdf` — evidence-first SecOps workflow.
-4. `NeoLabs_SOC_L1_Analyst_Handbook.pdf` — deeper analyst reference.
-5. `NeoLabs_SOC_L1_Wazuh_Guide.pdf` — Wazuh setup/investigation reference.
-6. `NeoLabs_SOC_L1_Complete_Toolkit.pdf` — long-form reference; do not try to read it all before starting Week 1.
+1. [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf) — what to do this week.
+2. **NeoLabs Log Literacy for Cybersecurity Analysts** — the branded 36-page manual supplied with your private Week 1 launch email.
+3. [`publications/02_NeoLabs_SOC_L1_SecOps_Field_Guide.pdf`](publications/02_NeoLabs_SOC_L1_SecOps_Field_Guide.pdf) — evidence-first SecOps workflow.
+4. [`publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf`](publications/NeoLabs_SOC_L1_Wazuh_Guide.pdf) — Wazuh setup/investigation reference.
+5. [`publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf`](publications/NeoLabs_SOC_L1_Analyst_Handbook.pdf) — deeper analyst reference.
+6. [`publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf`](publications/NeoLabs_SOC_L1_Complete_Toolkit.pdf) — long-form reference; do not try to read it all before starting Week 1.
 
 The Markdown source modules under `docs/` remain available for search, notes and future weeks.
 
@@ -57,9 +59,9 @@ The Markdown source modules under `docs/` remain available for search, notes and
 - installable `neolabs` pod-access/authentication client;
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
-- live mTLS enrolment and automatic S3 replay support;
+- automatic signed S3 replay ingestion and live mTLS support for later windows;
 - preflight, health, backup, restore and reset controls;
-- Log Literacy/SecOps/Wazuh educational material;
+- SecOps/Wazuh educational material plus the Week 1 Log Literacy launch attachment;
 - evidence, query-journal and incident-report templates;
 - synthetic labs/sample telemetry;
 - branded PDF publication and validation workflows.
@@ -68,7 +70,7 @@ The Markdown source modules under `docs/` remain available for search, notes and
 
 ```text
 neolabs login       authenticate with your assigned pod + private Access Code
-neolabs connect     use the current authorised LIVE/replay SOC surface
+neolabs connect     load the current authorised replay/live SOC surface into Wazuh
 neolabs status      show current runtime, pod and scenario
 neolabs evidence    download approved evidence for your pod/scenario
 neolabs pod info    show the server-assigned pod
@@ -105,4 +107,4 @@ research/ + references/   ← deeper reference material
 **VCC Security Lab:** Scheduled Live Target/Telemetry + Scenario  
 **Central Assignments:** Task submission + assessment
 
-Week 1 is intentionally hybrid: SOC can investigate the archived pod-scoped baseline even when the large VCC server is not continuously online.
+Week 1 is intentionally hybrid: SOC works from pod-scoped replay while Pentest and Support use scheduled isolated live access.
