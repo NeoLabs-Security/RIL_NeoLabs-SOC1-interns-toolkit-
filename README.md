@@ -12,11 +12,23 @@ The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side **Learn + 
 - Source: [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md)
 - Branded PDF: [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf)
 
-### 2. Install the NeoLabs access client
+### 2. Windows setup — no pip/PATH work required
 
-```bash
-python -m pip install -e .
+From the cloned toolkit folder, double-click:
+
+```text
+setup-windows.cmd
 ```
+
+It checks that Windows can find Python. You do **not** need to run `pip install -e .`, edit PATH, or manually type the NeoLabs gateway URL.
+
+Then open PowerShell in this toolkit folder and test the local launcher:
+
+```powershell
+.\neolabs.cmd --help
+```
+
+The Windows launcher routes the client through the official NeoLabs gateway while keeping the underlying SOC client in this repository.
 
 ### 3. Prepare Wazuh
 
@@ -24,18 +36,18 @@ Follow [`wazuh-stack/README.md`](wazuh-stack/README.md), run its preflight/setup
 
 ### 4. Authenticate with your private onboarding details
 
-Set the NeoLabs lab gateway URL supplied by the programme, then run:
+Run:
 
-```bash
-neolabs login
-neolabs status
-neolabs pod info
-neolabs connect
+```powershell
+.\neolabs.cmd login
+.\neolabs.cmd status
+.\neolabs.cmd pod info
+.\neolabs.cmd connect
 ```
 
-Enter only **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
+`login` asks only for **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
 
-For Week 1, the gateway deliberately returns **REPLAY** to SOC interns. `neolabs connect` downloads only your assigned pod's signed archived telemetry and feeds it into the same local Wazuh workflow. You do not need the live VCC SOC port to be publicly exposed.
+For Week 1, the gateway deliberately returns **REPLAY** to SOC interns. `connect` downloads only your assigned pod's signed archived telemetry and feeds it into the same local Wazuh workflow. You do not need the live VCC SOC port to be publicly exposed.
 
 ### 5. Complete Operation Night Watch
 
@@ -56,7 +68,9 @@ The Markdown source modules under `docs/` remain available for search, notes and
 
 ## What is preconfigured here
 
-- installable `neolabs` pod-access/authentication client;
+- local Windows `neolabs.cmd` launcher that avoids pip/PATH failures;
+- Windows readiness check;
+- installable Python pod-access/authentication client for non-Windows/manual use;
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
 - automatic signed S3 replay ingestion and live mTLS support for later windows;
@@ -69,18 +83,22 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ## Useful commands
 
 ```text
-neolabs login       authenticate with your assigned pod + private Access Code
-neolabs connect     load the current authorised replay/live SOC surface into Wazuh
-neolabs status      show current runtime, pod and scenario
-neolabs evidence    download approved evidence for your pod/scenario
-neolabs pod info    show the server-assigned pod
-neolabs disconnect  remove the local gateway session
+.\neolabs.cmd login       authenticate with your assigned pod + private Access Code
+.\neolabs.cmd connect     load the current authorised replay/live SOC surface into Wazuh
+.\neolabs.cmd status      show current runtime, pod and scenario
+.\neolabs.cmd evidence    download approved evidence for your pod/scenario
+.\neolabs.cmd pod info    show the server-assigned pod
+.\neolabs.cmd disconnect  remove the local gateway session
 ```
 
 ## Repository map
 
 ```text
 README.md                 ← you are here
+setup-windows.cmd         ← one-click Windows readiness check
+neolabs.cmd               ← Windows launcher; avoids pip/PATH problems
+neolabs-local.cmd         ← gateway-aware Windows shim
+neolabs.ps1               ← PowerShell launcher implementation
 START_HERE.md             ← workstation/orientation detail
 docs/week-01/             ← current Week 1 instructions
 publications/             ← branded student PDFs
