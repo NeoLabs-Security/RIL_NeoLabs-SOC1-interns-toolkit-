@@ -12,7 +12,10 @@ The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side **Learn + 
 - Source: [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md)
 - Branded PDF: [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf)
 
-### 2. Windows setup — no pip/PATH work required
+### 2. Windows setup — IMPORTANT
+
+> **Windows interns: use ` .\neolabs.cmd ` — not `neolabs`.**  
+> Run every NeoLabs command from inside this toolkit folder. Do not use bare `neolabs` and do not manually add the Python Scripts folder to PATH.
 
 From the cloned toolkit folder, double-click:
 
@@ -36,7 +39,7 @@ Follow [`wazuh-stack/README.md`](wazuh-stack/README.md), run its preflight/setup
 
 ### 4. Authenticate with your private onboarding details
 
-Run:
+Use these exact Windows commands:
 
 ```powershell
 .\neolabs.cmd login
@@ -52,6 +55,18 @@ For Week 1, the gateway deliberately returns **REPLAY** to SOC interns. `connect
 ### 5. Complete Operation Night Watch
 
 Use the Week 1 pack for the exact task and deliverables. Official submissions belong in the separate `RIL_NeoLabs-Intern-Assignments` repository, not this toolkit.
+
+## Windows command reminder
+
+```text
+CORRECT:   .\neolabs.cmd login
+CORRECT:   .\neolabs.cmd status
+CORRECT:   .\neolabs.cmd connect
+
+DO NOT USE: neolabs login
+DO NOT USE: neolabs status
+DO NOT USE: python tools\neolabs.py login --base-url ...
+```
 
 ## Week 1 study shelf
 
@@ -70,17 +85,17 @@ The Markdown source modules under `docs/` remain available for search, notes and
 
 - local Windows `neolabs.cmd` launcher that avoids pip/PATH failures;
 - Windows readiness check;
-- installable Python pod-access/authentication client for non-Windows/manual use;
+- underlying Python pod-access/authentication client for non-Windows/manual use;
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
-- automatic signed S3 replay ingestion and live mTLS support for later windows;
+- automatic signed replay ingestion and live support for later windows;
 - preflight, health, backup, restore and reset controls;
 - SecOps/Wazuh educational material plus the Week 1 Log Literacy launch attachment;
 - evidence, query-journal and incident-report templates;
 - synthetic labs/sample telemetry;
 - branded PDF publication and validation workflows.
 
-## Useful commands
+## Useful Windows commands
 
 ```text
 .\neolabs.cmd login       authenticate with your assigned pod + private Access Code
@@ -96,14 +111,14 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ```text
 README.md                 ← you are here
 setup-windows.cmd         ← one-click Windows readiness check
-neolabs.cmd               ← Windows launcher; avoids pip/PATH problems
+neolabs.cmd               ← use this for ALL Windows NeoLabs commands
 neolabs-local.cmd         ← gateway-aware Windows shim
 neolabs.ps1               ← PowerShell launcher implementation
 START_HERE.md             ← workstation/orientation detail
 docs/week-01/             ← current Week 1 instructions
 publications/             ← branded student PDFs
 wazuh-stack/              ← preconfigured SOC tooling
-tools/neolabs.py          ← pod access/authenticator client
+tools/neolabs.py          ← underlying client
 templates/                ← evidence/report templates
 sample-logs/ + labs/      ← safe practice material
 research/ + references/   ← deeper reference material
@@ -111,17 +126,12 @@ research/ + references/   ← deeper reference material
 
 ## Security rules
 
-- Never commit/share Access Codes, broker sessions, enrolment tokens, certificates or private keys.
-- Never edit a pod label or target in an attempt to reach another pod.
-- Use only synthetic data and authorised VCC resources.
-- Keep `runtime/`, Wazuh state, replay state and certificate material local.
-- Students never receive AWS credentials or bucket-wide S3 access.
-- Stop and notify a mentor if another pod, real personal data, a credential or unexpected infrastructure access appears.
+Never share private access details, session files, certificates or keys. Never alter local pod identifiers in an attempt to access another pod. Use only synthetic data and authorised VCC resources. Stop and notify a mentor if another pod, real personal data, a credential or unexpected infrastructure access appears.
 
 ## Runtime design
 
 **Toolkit:** Learn + Connect + Operate  
-**Replay Gateway:** Stable Authentication + Runtime State + S3 Replay  
+**Replay Gateway:** Stable Authentication + Runtime State + Replay  
 **VCC Security Lab:** Scheduled Live Target/Telemetry + Scenario  
 **Central Assignments:** Task submission + assessment
 
