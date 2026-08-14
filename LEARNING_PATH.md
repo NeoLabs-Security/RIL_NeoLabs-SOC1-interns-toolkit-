@@ -1,6 +1,6 @@
 # NeoLabs SOC Level 1 Learning Path
 
-The toolkit is organised as a progressive beginner-to-intermediate pathway. Technical terminology is preserved, but each concept is explained before learners are expected to use it.
+The toolkit is organised as a progressive beginner-to-intermediate pathway. Technical terminology is preserved, but each concept is explained before learners are expected to use it. See [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md) for the current runtime/startup model.
 
 ## Phase 1 — Security Operations foundations
 
@@ -18,7 +18,7 @@ Primary material:
 ## Phase 2 — Log and SIEM literacy
 
 - How telemetry is generated, collected, parsed, normalised, indexed and searched
-- Time zones, event time, ingestion time and clock drift
+- Time zones, event time, ingestion/index time and clock drift
 - Windows, Sysmon, Linux, web, application, database and cloud evidence
 - Correlation, baselines, visibility gaps and defensible conclusions
 - Data-quality failures that can create misleading alerts
@@ -61,11 +61,15 @@ Primary material:
 - Manager, indexer, dashboard and collector roles
 - Alert and archive data
 - Decoders, rules, groups and centralised configuration
-- Safe local deployment, compatibility, health checking, backup and recovery
-- Operator-approved connection to a VCC pod-scoped telemetry feed
+- One-click Windows/WSL2 workstation startup, health/doctor checks, backup and recovery
+- Operator-approved connection to a server-assigned VCC pod telemetry feed
+- Telemetry freshness, local index retention/disk safety and saved Night Watch/Telemetry Health views
 
 Primary material:
 
+- `README.md`
+- `START_HERE.md`
+- `PROGRAMME_CURRENT_STATE.md`
 - `docs/wazuh-handbook/01-wazuh-architecture-and-neolabs-deployment.md`
 - `docs/setup/WORKSTATION_COMPATIBILITY.md`
 - `docs/setup/BACKUP_AND_RECOVERY.md`
@@ -79,6 +83,7 @@ Primary material:
 - Wazuh Query Language and OpenSearch concepts
 - Linux, Windows and JSON command-line searches
 - Timeline construction and alert-to-evidence movement
+- Distinguishing missing evidence from unhealthy/stale telemetry
 
 Primary material:
 
@@ -98,6 +103,7 @@ Primary material:
 Primary material:
 
 - `labs/01-authentication-triage/README.md`
+- staged later labs such as `labs/02-credential-storm-replay/README.md` only after their weekly release
 - `sample-logs/`
 - `docs/secops-foundations/07-wazuh-alert-investigation-and-tuning.md`
 
@@ -115,19 +121,38 @@ Primary material:
 - `docs/secops-foundations/08-case-management-reporting-and-capstone.md`
 - `templates/`
 
+## How the 12-week programme applies the pathway
+
+| Week | Scenario | Main SOC competency |
+|---|---|---|
+| 01 | Operation Night Watch | baseline building, log literacy, saved searches, visibility gaps |
+| 02 | Ghost Login | identity/session anomaly investigation |
+| 03 | Credential Storm | authentication burst correlation and detection engineering |
+| 04 | Broken Gate | authorisation/access anomaly analysis |
+| 05 | Poisoned Upload | upload/file telemetry correlation |
+| 06 | Web Breach | web attack-chain investigation |
+| 07 | Cloud Locker | CloudTrail/IAM/S3 monitoring |
+| 08 | S3 Insider Trail | privileged/insider behaviour analysis without premature attribution |
+| 09 | Data Escape | multi-event exfiltration investigation |
+| 10 | Hidden Endpoint | API route/anomaly analysis |
+| 11 | Developer Ransomware Drill | endpoint/process/file timeline and recovery evidence |
+| 12 | Blackout at VCC | incident command, multi-source correlation, reporting and handoff |
+
+Later-week material can be staged ahead of time. Presence of a lab/file is not permission to execute the scenario; the current central assignment and server-issued scenario state are authoritative.
+
 ## Completion standard
 
-A learner completes the Version 1 pathway when they can:
+A learner completes the pathway when they can:
 
-1. receive and preserve an alert;
-2. verify the underlying evidence;
-3. search for related authentication, endpoint, web, application or cloud events;
+1. receive and preserve an alert/event;
+2. verify the underlying evidence and source health;
+3. search related authentication, endpoint, web, application or cloud events;
 4. maintain a reproducible query journal;
-5. build a timezone-consistent timeline;
+5. build a timezone-consistent original-event-time timeline;
 6. distinguish fact from interpretation and assumption;
 7. assign an evidence-supported disposition, severity and confidence;
-8. identify visibility limitations;
+8. identify visibility/telemetry limitations;
 9. recommend containment, escalation or safe tuning;
-10. submit a clear handoff-ready report without credentials, private URLs or another pod's evidence.
+10. hand off findings across tracks and submit a clear report without credentials, private URLs or another pod's evidence.
 
-The capstone is completed only within the learner's operator-assigned synthetic VCC pod scope.
+The capstone is completed only within the learner's server-assigned synthetic VCC scope.
