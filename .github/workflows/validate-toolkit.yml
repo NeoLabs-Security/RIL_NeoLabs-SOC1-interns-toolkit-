@@ -107,6 +107,9 @@ jobs:
               'Docker helper checks WSL2': '--set-default-version 2' in docker_bootstrap and 'Get-DefaultWslDistribution' in docker_bootstrap,
               'Docker helper requires Linux engine': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
               'Docker helper verifies WSL integration': 'docker info --format' in docker_bootstrap and 'WSL Integration' in docker_bootstrap,
+              'Docker helper detects Windows Server': 'Win32_OperatingSystem' in docker_bootstrap and 'IsWindowsServer' in docker_bootstrap,
+              'Docker helper detects Windows VM VPS': 'Win32_ComputerSystem' in docker_bootstrap and 'IsVirtualMachine' in docker_bootstrap and 'Stop-UnsupportedWindowsPlatform' in docker_bootstrap,
+              'Docker helper directs VPS to Linux launcher': 'bash start-neolabs-soc.sh' in docker_bootstrap and 'Ubuntu' in docker_bootstrap,
               'Linux launcher uses controlled sudo/root helper': 'run_root()' in linux_launcher and 'sudo' in linux_launcher,
               'Linux launcher installs official Docker packages': 'docker-ce' in linux_launcher and 'docker-compose-plugin' in linux_launcher,
               'Linux launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in linux_launcher,
@@ -253,6 +256,14 @@ jobs:
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
+          }
+
+      - name: Validate Windows platform guard contract
+        shell: powershell
+        run: |
+          $text = Get-Content .\internal\windows\Start-NeoLabsDocker.ps1 -Raw
+          foreach ($required in @('Win32_OperatingSystem','Win32_ComputerSystem','IsWindowsServer','IsVirtualMachine','Stop-UnsupportedWindowsPlatform','bash start-neolabs-soc.sh')) {
+            if ($text -notmatch [regex]::Escape($required)) { throw "Windows platform guard is missing: $required" }
           }
 
       - name: Validate root CMD routes to internal implementation

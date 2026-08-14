@@ -83,6 +83,78 @@ function Install-DockerDesktopWithWinget {
     return $true
 }
 
+function Get-NeoLabsWindowsPlatform {
+    $os = $null
+    $system = $null
+    try { $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } catch { }
+    try { $system = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop } catch { }
+
+    $caption = if ($os) { [string]$os.Caption } else { '' }
+    $productType = if ($os) { [int]$os.ProductType } else { 0 }
+    $manufacturer = if ($system) { [string]$system.Manufacturer } else { '' }
+    $model = if ($system) { [string]$system.Model } else { '' }
+    $family = if ($system -and $system.PSObject.Properties.Name -contains 'SystemFamily') { [string]$system.SystemFamily } else { '' }
+    $identity = "$manufacturer $model $family".ToLowerInvariant()
+
+    $virtualPatterns = @(
+        'virtual machine',
+        'vmware',
+        'virtualbox',
+        'qemu',
+        'kvm',
+        'xen',
+        'amazon ec2',
+        'google compute engine',
+        'digitalocean',
+        'openstack',
+        'parallels',
+        'bhyve',
+        'bochs',
+        'nutanix',
+        'hvm domu'
+    )
+    $isVirtual = $false
+    foreach ($pattern in $virtualPatterns) {
+        if ($identity.Contains($pattern)) {
+            $isVirtual = $true
+            break
+        }
+    }
+
+    return [pscustomobject]@{
+        Caption = $caption
+        ProductType = $productType
+        Manufacturer = $manufacturer
+        Model = $model
+        IsWindowsServer = ($productType -ne 0 -and $productType -ne 1) -or ($caption -match 'Windows Server')
+        IsVirtualMachine = $isVirtual
+    }
+}
+
+function Stop-UnsupportedWindowsPlatform([string]$Reason, $Platform) {
+    Write-Host ''
+    Write-Host '==============================================' -ForegroundColor DarkRed
+    Write-Host '      NEOLABS SOC PLATFORM CHECK FAILED' -ForegroundColor Red
+    Write-Host '==============================================' -ForegroundColor DarkRed
+    Write-Host ''
+    Write-Host $Reason -ForegroundColor Yellow
+    if ($Platform) {
+        if ($Platform.Caption) { Write-Host "Detected OS: $($Platform.Caption)" }
+        if ($Platform.Manufacturer -or $Platform.Model) { Write-Host "Detected system: $($Platform.Manufacturer) $($Platform.Model)" }
+    }
+    Write-Host ''
+    Write-Host 'NeoLabs internship platform policy:' -ForegroundColor Cyan
+    Write-Host '  - Physical Windows 10/11 workstation: use START-NEOLABS-SOC.cmd'
+    Write-Host '  - VPS / remote server: use Ubuntu or Debian Linux and run start-neolabs-soc.sh'
+    Write-Host '  - Windows Server VPS and Windows VM/VPS guests are not supported for the SOC workstation.'
+    Write-Host ''
+    Write-Host 'For a VPS, rebuild/create it with Ubuntu 22.04/24.04 or a current Debian release, then run:' -ForegroundColor Cyan
+    Write-Host '  bash start-neolabs-soc.sh'
+    Write-Host ''
+    Write-Host 'WSL2 cannot create missing nested-virtualization capability from inside a VPS. That capability is controlled by the host/hypervisor provider.' -ForegroundColor DarkYellow
+    exit 3
+}
+
 if ($ValidateOnly) {
     Write-Host '[OK] Internal Windows Docker/WSL2 bootstrap contract is valid.'
     exit 0
@@ -96,6 +168,16 @@ Write-Host '      NeoLabs Windows Runtime Bootstrap' -ForegroundColor Cyan
 Write-Host '==============================================' -ForegroundColor DarkCyan
 Write-Host ''
 
+Write-Step 'Checking whether this is a supported physical Windows workstation...'
+$platform = Get-NeoLabsWindowsPlatform
+if ($platform.IsWindowsServer) {
+    Stop-UnsupportedWindowsPlatform 'Windows Server was detected. NeoLabs SOC VPS/server deployments must use Ubuntu/Debian Linux rather than Docker Desktop + WSL2 on Windows Server.' $platform
+}
+if ($platform.IsVirtualMachine) {
+    Stop-UnsupportedWindowsPlatform 'A Windows virtual machine/VPS guest was detected. NeoLabs does not use Windows VM/VPS guests for remote SOC work because WSL2 depends on host-provided nested virtualization. Use an Ubuntu/Debian VPS instead.' $platform
+}
+Write-Host '[OK] Supported physical Windows workstation path detected.' -ForegroundColor Green
+
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Write-Step 'WSL is not enabled. Requesting the Windows WSL feature installation...'
     $exitCode = Invoke-ElevatedPowerShell 'wsl.exe --install --no-distribution'
@@ -105,7 +187,7 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
 
 Write-Step 'Checking WSL2...'
 & wsl.exe --set-default-version 2 *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Windows could not set WSL2 as the default. Run `wsl --update`, restart if requested, and retry.' }
+if ($LASTEXITCODE -ne 0) { throw 'Windows could not set WSL2 as the default. Confirm hardware virtualisation is enabled in the physical computer BIOS/UEFI, run `wsl --update`, restart if requested, and retry.' }
 
 $defaultDistro = Get-DefaultWslDistribution
 if (-not $defaultDistro) {
@@ -117,7 +199,7 @@ if (-not $defaultDistro) {
 if ($defaultDistro.Version -ne 2) {
     Write-Step "Converting '$($defaultDistro.Name)' to WSL2..."
     & wsl.exe --set-version $defaultDistro.Name 2
-    if ($LASTEXITCODE -ne 0) { throw "Could not convert '$($defaultDistro.Name)' to WSL2. Run the conversion once from an Administrator PowerShell." }
+    if ($LASTEXITCODE -ne 0) { throw "Could not convert '$($defaultDistro.Name)' to WSL2. On a physical Windows computer, confirm virtualisation is enabled in BIOS/UEFI and retry." }
     $defaultDistro = Get-DefaultWslDistribution
     if (-not $defaultDistro -or $defaultDistro.Version -ne 2) { throw 'The default Linux distribution is not running as WSL2 yet. Restart Windows if requested and retry.' }
 }

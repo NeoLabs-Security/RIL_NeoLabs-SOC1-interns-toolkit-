@@ -9,11 +9,13 @@ This file is the current operational reference for the SOC toolkit. The supporte
 
 ## Supported entry points
 
-### Windows
+### Physical Windows 10/11 workstation
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
+
+The Windows launcher is not the supported remote/VPS path. It performs a platform check before WSL/Docker work and refuses Windows Server and common Windows VM/VPS guests.
 
 ### Linux / Ubuntu
 
@@ -27,7 +29,13 @@ After first-run permission normalisation:
 ./start-neolabs-soc.sh
 ```
 
-All PowerShell, Docker, Wazuh and NeoLabs helper scripts are implementation details beneath these entry points. Students should not assemble a manual setup sequence from files inside `internal/` or `wazuh-stack/scripts/`.
+### VPS / remote server
+
+Programme policy requires an **Ubuntu or Debian Linux VPS**. Recommended images are Ubuntu 22.04/24.04 LTS or a current Debian release. Do not provision Windows Server or a Windows VM/VPS guest for the SOC workstation.
+
+A Windows guest cannot make nested virtualisation appear from inside the VM when the host provider has not exposed it. NeoLabs therefore avoids WSL2 on VPS systems and runs Docker Engine/Wazuh directly on Linux.
+
+All PowerShell, Docker, Wazuh and NeoLabs helper scripts are implementation details beneath the root entry points. Students should not assemble a manual setup sequence from files inside `internal/` or `wazuh-stack/scripts/`.
 
 ## First-run behaviour
 
@@ -37,20 +45,21 @@ Both launchers are designed to be idempotent orchestration layers. First run pre
 
 The root CMD delegates to `internal/windows/Start-NeoLabsSOC.ps1`, which:
 
-1. prepares WSL2 and Docker Desktop through the internal Windows bootstrap;
-2. installs missing Linux prerequisites inside WSL2 with the WSL root account;
-3. sets the required Wazuh indexer `vm.max_map_count` value when needed;
-4. verifies workstation capacity;
-5. generates private local Wazuh credentials if `.env` does not exist;
-6. prepares the pinned Wazuh stack if generated configuration is absent;
-7. authenticates the intern when no valid NeoLabs session exists;
-8. connects the server-authorised LIVE/REPLAY telemetry surface and starts Wazuh;
-9. waits for manager/indexer/dashboard/collector health;
-10. verifies a real synthetic event from the server-assigned pod is searchable in `wazuh-alerts-*`;
-11. reports freshness/retention/disk state;
-12. provisions the Night Watch/Telemetry Health saved objects when supported;
-13. copies the local `admin` password to the Windows clipboard without printing it; and
-14. opens the local dashboard.
+1. rejects Windows Server and detected Windows VM/VPS guests before attempting WSL2;
+2. prepares WSL2 and Docker Desktop through the internal Windows bootstrap on a supported physical workstation;
+3. installs missing Linux prerequisites inside WSL2 with the WSL root account;
+4. sets the required Wazuh indexer `vm.max_map_count` value when needed;
+5. verifies workstation capacity;
+6. generates private local Wazuh credentials if `.env` does not exist;
+7. prepares the pinned Wazuh stack if generated configuration is absent;
+8. authenticates the intern when no valid NeoLabs session exists;
+9. connects the server-authorised LIVE/REPLAY telemetry surface and starts Wazuh;
+10. waits for manager/indexer/dashboard/collector health;
+11. verifies a real synthetic event from the server-assigned pod is searchable in `wazuh-alerts-*`;
+12. reports freshness/retention/disk state;
+13. provisions the Night Watch/Telemetry Health saved objects when supported;
+14. copies the local `admin` password to the Windows clipboard without printing it; and
+15. opens the local dashboard.
 
 Windows may require a restart after first enabling WSL or one initial Linux-distribution user setup. When Windows cannot complete such an OS transition in the running process, the launcher stops clearly and the intern reruns the **same CMD** after the required restart/initialisation.
 
@@ -75,7 +84,7 @@ When `.env` and generated Wazuh configuration already exist, the launchers prese
 
 ## Diagnostics through the same entrypoint
 
-Windows:
+Windows physical workstation:
 
 ```text
 START-NEOLABS-SOC.cmd doctor
@@ -83,7 +92,7 @@ START-NEOLABS-SOC.cmd status
 START-NEOLABS-SOC.cmd login
 ```
 
-Linux:
+Linux / Ubuntu / VPS:
 
 ```bash
 ./start-neolabs-soc.sh doctor
@@ -103,7 +112,7 @@ https://127.0.0.1:8443
 
 Username is `admin`. The password is generated locally and never belongs in GitHub/student submissions.
 
-Windows copies it to the clipboard without printing it. A Linux desktop may copy it when a supported clipboard utility is already available. On headless Linux servers the launcher prints an SSH local-port-forward example because there is no GUI browser on the server; the dashboard remains loopback-only.
+Windows copies it to the clipboard without printing it. A Linux desktop may copy it when a supported clipboard utility is already available. On headless Linux servers/VPS systems the launcher prints an SSH local-port-forward example because there is no GUI browser on the server; the dashboard remains loopback-only.
 
 ## READY meaning
 

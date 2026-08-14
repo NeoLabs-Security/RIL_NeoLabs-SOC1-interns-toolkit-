@@ -6,13 +6,15 @@ The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side Learn + Co
 
 There are only **two normal student entry points**, one per operating system.
 
-### Windows
+### Windows physical workstation
 
 Double-click:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
+
+The Windows launcher is for a **physical Windows 10/11 laptop or desktop**. It now checks the host before WSL/Docker setup. If it detects Windows Server or a Windows virtual machine/VPS guest, it stops early and instructs the intern to use an Ubuntu/Debian VPS with the Linux launcher instead.
 
 ### Linux / Ubuntu
 
@@ -28,6 +30,18 @@ After the first run has normalised executable permissions, you may also use:
 ./start-neolabs-soc.sh
 ```
 
+### VPS / remote server policy
+
+Interns using a VPS or remote server must use **Ubuntu or Debian Linux**, not Windows Server and not a Windows VM/VPS guest. The recommended VPS choices are Ubuntu 22.04/24.04 or a current Debian release.
+
+On a VPS use only:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+This avoids the WSL2/nested-virtualisation dependency entirely. A VPS provider controls whether nested virtualisation is exposed; the NeoLabs launcher cannot create that capability from inside a Windows guest.
+
 Do not manually run the scripts under `internal/` or `wazuh-stack/scripts/` for normal cohort startup.
 
 ## What the launcher does on the first run
@@ -36,17 +50,17 @@ The platform launcher owns setup instead of expecting interns to guess which low
 
 It checks/installs the supported platform prerequisites, prepares Docker, configures the Wazuh indexer kernel prerequisite, generates private local Wazuh credentials, prepares the pinned Wazuh 4.14.7 stack, authenticates the intern to the server-assigned NeoLabs pod, starts Wazuh, connects the authorised LIVE/REPLAY telemetry path, verifies Wazuh health, proves assigned-pod telemetry is searchable in `wazuh-alerts-*`, checks freshness/retention/disk state and opens or prints access to the Night Watch dashboard.
 
-On Windows the launcher uses WSL2 + Docker Desktop. If Windows components require a reboot or a new WSL Linux distribution needs its one-time user creation, the launcher stops with a clear instruction and continues when the intern reruns the same root CMD afterward.
+On a supported physical Windows workstation the launcher uses WSL2 + Docker Desktop. If Windows components require a reboot or a new WSL Linux distribution needs its one-time user creation, the launcher stops with a clear instruction and continues when the intern reruns the same root CMD afterward.
 
-On Ubuntu/Debian Linux, the launcher can install the required base packages and Docker Engine/Compose v2, using `sudo` only for OS-level installation/kernel changes. Do **not** run the whole Linux launcher with `sudo`.
+On Ubuntu/Debian Linux, including a VPS, the launcher can install the required base packages and Docker Engine/Compose v2, using `sudo` only for OS-level installation/kernel changes. Do **not** run the whole Linux launcher with `sudo`.
 
 ## Subsequent runs
 
 Use the same entry point again:
 
 ```text
-Windows: START-NEOLABS-SOC.cmd
-Linux:   ./start-neolabs-soc.sh
+Windows physical workstation: START-NEOLABS-SOC.cmd
+Linux / Ubuntu / VPS:        ./start-neolabs-soc.sh
 ```
 
 If the local Wazuh installation/configuration already exists, it is reused. The launcher starts/reconnects the authorised SOC surface, verifies health and telemetry searchability, then opens the dashboard when a local GUI is available.
@@ -99,7 +113,7 @@ admin
 
 On Windows, the locally generated password is copied to the clipboard without being printed. On Linux desktop systems the launcher uses an existing supported clipboard utility when available. Otherwise the password remains private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
 
-On a headless Ubuntu/Linux server there is no browser to open on the server itself. The launcher prints the SSH local-port-forward command to use from the intern's own computer, then the intern opens the same loopback dashboard URL locally.
+On a headless Ubuntu/Linux VPS there is no browser to open on the server itself. The launcher prints the SSH local-port-forward command to use from the intern's own computer, then the intern opens the same loopback dashboard URL locally.
 
 ## READY means verified
 
@@ -125,8 +139,8 @@ Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`, not this
 ## Repository layout
 
 ```text
-START-NEOLABS-SOC.cmd       ← Windows student entry point
-start-neolabs-soc.sh        ← Linux/Ubuntu student entry point
+START-NEOLABS-SOC.cmd       ← physical Windows 10/11 student entry point
+start-neolabs-soc.sh        ← Linux/Ubuntu/VPS student entry point
 README.md                    ← this page
 START_HERE.md                ← onboarding/orientation
 PROGRAMME_CURRENT_STATE.md   ← current programme/runtime reference
@@ -154,7 +168,7 @@ Current Wazuh workstation baseline:
 - Docker with Compose v2;
 - Wazuh indexer `vm.max_map_count >= 262144`.
 
-The launcher attempts to satisfy installable/kernel prerequisites but cannot manufacture missing RAM/disk/CPU capacity.
+The launcher attempts to satisfy installable/kernel prerequisites but cannot manufacture missing RAM/disk/CPU capacity or host/hypervisor virtualisation capability.
 
 ## Security boundary
 
