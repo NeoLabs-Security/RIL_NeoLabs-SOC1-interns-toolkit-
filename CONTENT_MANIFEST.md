@@ -1,40 +1,52 @@
 # Content Manifest
 
-This file tracks the authoritative student-facing materials included in the NeoLabs SOC Level 1 Toolkit Version 1.
+This file tracks the authoritative student-facing material and operational tooling included in the current NeoLabs SOC Level 1 toolkit.
 
-| Material | Version 1 scope | Repository status |
+| Material | Current scope | Repository/programme status |
 |---|---|---|
-| Log Literacy and SIEM Foundations | Log purpose, event fields, SIEM pipelines, normalisation, data quality and investigation method | Integrated into the analyst handbook and query reference |
-| SecOps Foundations | Eight beginner-to-intermediate modules from SOC fundamentals through capstone reporting | Complete for Version 1 |
-| Wazuh SOC L1 Handbook | Wazuh 4.14.7 architecture, NeoLabs deployment model, setup, health, isolation, recovery and troubleshooting | Complete for Version 1 |
-| Wazuh Dashboard Tutorial | Orientation, filters, alert-to-evidence pivots, timeline construction and reporting workflow | Complete for Version 1; screenshot-led exercises may be refreshed after rollout feedback |
-| Query and Command Reference | WQL, OpenSearch, `jq`, `grep`, `journalctl`, `ausearch` and PowerShell investigation references | Complete for Version 1 |
-| Practice Labs | Guided synthetic authentication investigation plus capstone method and assessment rubric | Complete for Version 1 baseline; later scenario packs are delivered through assignments |
-| Sample Logs | Sanitised synthetic authentication dataset and schema requirements | Complete for Version 1 baseline |
-| Incident Report Template | Professional investigation report structure with facts, analysis, confidence and recommendations | Complete |
-| Evidence and Query Templates | Evidence register, timeline and reproducible query journal | Complete |
-| Wazuh Setup and Troubleshooting | Pinned container topology, local-secret workflow, compatibility check, health checks, collector, reset, backup, verify and restore | Complete for Version 1 |
-| VCC Enrolment Integration | Single-use token exchange, local key generation, client certificate, server-derived pod scope and revocation | End-to-end rehearsal passed; server control plane merged into VCC Security Lab `main` |
-| NeoLabs Publications | Analyst handbook, Wazuh guide, template pack, lab pack and complete toolkit PDF | Automated build passed and artifacts reviewed |
+| Log Literacy and SIEM Foundations | log purpose, event fields, SIEM pipelines, normalisation, data quality and investigation method | Current |
+| SecOps Foundations | eight beginner-to-intermediate modules from SOC fundamentals through reporting/capstone | Current |
+| Wazuh SOC L1 Handbook | Wazuh 4.14.7 architecture, NeoLabs deployment, setup, health, isolation, recovery and troubleshooting | Current |
+| Wazuh Dashboard Tutorial | navigation, filters, alert-to-evidence pivots, timeline construction and reporting | Current; Night Watch/Telemetry Health saved objects are provisioned by the workstation tooling |
+| Query and Command Reference | WQL/OpenSearch concepts plus approved CLI investigation references | Current |
+| Practice Labs | guided synthetic authentication investigation plus staged scenario labs | Week 1 current; later labs are released only with their weekly assignment |
+| Sample Logs | sanitised synthetic authentication dataset and schema requirements | Current baseline |
+| Incident/Evidence Templates | facts, analysis, confidence, evidence register, timeline and query journal | Current |
+| Wazuh Setup/Troubleshooting | one-click Windows launch, WSL2, health, doctor, retention, backup/restore and bounded repair | Current |
+| VCC Access Integration | server-assigned pod, LIVE/replay selection, mTLS live path, signed replay ingestion and revocation | Deployed programme path; students do not select another pod |
+| Telemetry-to-Dashboard Verification | real assigned-pod event must be searchable in `wazuh-alerts-*` before READY | Current and CI-contracted |
+| Night Watch Saved View | pod-scoped Week 1 view with identity/source/outcome/correlation/rule/event-time fields | Runtime-provisioned on each local Wazuh workstation |
+| Telemetry Health Saved View | rule `100150` collector/parser/visibility troubleshooting view | Runtime-provisioned on each local Wazuh workstation |
+| Freshness/Retention | 90-minute default freshness warning; 30-day local alert-index retention; 85%/92% disk warnings | Current defaults; server-side VCC archives are unaffected |
+| NeoLabs Publications | analyst handbook, Wazuh guide, template/lab packs and combined reference PDFs | Automated build on `main` |
+
+## Current student startup
+
+Windows students normally use `START-NEOLABS-SOC.cmd`. `CHECK-NEOLABS-SOC.cmd` / `.\neolabs.cmd doctor` is the standard diagnostic path. The normal local dashboard is `https://127.0.0.1:8443`; username is `admin`, with the locally generated password copied to the Windows clipboard without being printed.
+
+Older instructions requiring a global `pip install`, a manually entered gateway URL or a separately provided always-on Wazuh server are superseded by the current local WSL2/Docker workstation model.
+
+## Current programme state
+
+- Production training topology is five isolated pods: `pod-01` through `pod-05`.
+- Week 1 Operation Night Watch is the current assignment and is a HYBRID baseline week.
+- The VCC Replay Gateway keeps authorised pod/scenario telemetry available when the main interactive VCC runtime is stopped.
+- Normal NeoLabs VCC baseline events are indexed into `wazuh-alerts-*` so Threat Hunting can show Week 1 activity.
+- The toolkit verifies the complete local ingestion/rule/index path before declaring the workstation ready.
+- Later scenario content may be staged ahead of release but is not student authorisation by itself.
+
+See [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md) for the cross-week operational summary.
 
 ## Source handling
 
-Original source files are preserved under `source-materials/` where licensing and confidentiality permit. Student-facing Markdown remains in the documented repository directories. Superseded or duplicate editions are identified in `source-materials/SOURCE_REGISTER.md` rather than silently mixed.
+Original source files are preserved under `source-materials/` where licensing/confidentiality permit. Student-facing Markdown remains in documented repository directories. Superseded/duplicate editions are identified in `source-materials/SOURCE_REGISTER.md` rather than silently mixed.
 
-## Publication rule
+## Publication/validation rule
 
-A material is marked **Version 1 complete** only after technical and safety review, reference/terminology review, exercise validation, Markdown validation, publication rendering where applicable, representative-page inspection, and credential/private-information boundary checks.
+Student material is considered current only after technical/safety review, terminology/reference review, exercise validation where applicable, Markdown/source checks, publication rendering where applicable and credential/private-information boundary checks.
 
-## Completed validation
-
-- Repository CI validates Python, shell syntax, XML, NDJSON, Docker Compose structure, required publication inputs and credential-file boundaries.
-- Collector unit tests cover synthetic-event enforcement, required fields, cross-pod rejection, server-issued pod stability and absence of a client pod selector.
-- The local Wazuh stack is pinned to the approved Wazuh release rather than `latest`.
-- Synthetic backup/restore rehearsal validates archive creation, checksums and restoration.
-- Linux compatibility checks are automated; WSL2 and macOS requirements are documented.
-- The private VCC Security Lab completed real CSR exchange, two-pod separation, single-use token denial, client pod-selector denial, credential revocation and assignment revocation.
-- The branded publication workflow generated and validated the student PDF set.
+Repository CI covers Python/shell/XML/NDJSON/Compose source checks, telemetry-to-dashboard contracts, Windows launcher contracts, backup/restore rehearsal, publication inputs and credential-file boundaries.
 
 ## Release state
 
-Version 1 is merged into `main` and is the student-facing SOC toolkit. The remaining cohort-launch actions are operational rather than missing repository implementation: each student must provide/run a suitable server, the operator must deploy the VCC control plane with real DNS/TLS/secrets, assign pods, issue short-lived enrolment tokens securely and verify the student's first synthetic telemetry event before scenario work begins.
+The toolkit is on `main` and in active programme use. Remaining student-specific actions are local/operational: pull the latest toolkit, run the current launcher, authenticate with the assigned pod + private Access Code, and do not start analysis until the workstation verifies assigned-pod telemetry is searchable.
