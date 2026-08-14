@@ -21,9 +21,10 @@ printf '[repair] Current lab state: %s\n' "${lab_state}"
 
 # Reassert the existing containers/configuration without deleting named volumes.
 docker compose --env-file .env up -d wazuh.indexer wazuh.manager vcc.telemetry.collector wazuh.dashboard >/dev/null
-# Restart the two components that consume and analyse the shared telemetry file.
+# Restart only local consumers of the shared telemetry file. Never reset VCC or
+# delete the student's persistent Wazuh/indexer named volumes.
 docker compose --env-file .env restart wazuh.manager vcc.telemetry.collector >/dev/null
-./scripts/health-check.sh --wait 300
+bash ./scripts/health-check.sh --wait 300
 
 case "${lab_state}" in
   REPLAY|CLOUD_LIVE|ENDPOINT_LIVE)
@@ -54,5 +55,5 @@ case "${lab_state}" in
     ;;
 esac
 
-./scripts/verify-telemetry-pipeline.sh --wait 180
+bash ./scripts/verify-telemetry-pipeline.sh --wait 180
 printf '[repair] Local VCC telemetry path recovered and is searchable.\n'
