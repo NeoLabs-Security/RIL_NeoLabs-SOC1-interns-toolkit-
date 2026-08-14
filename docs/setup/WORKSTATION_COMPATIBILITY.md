@@ -16,7 +16,7 @@ For current startup behaviour see [`../../PROGRAMME_CURRENT_STATE.md`](../../PRO
 
 Seven GiB is the constrained Week 1 memory floor. The launchers can install software and configure a kernel setting; they cannot fix insufficient RAM, CPU, disk capacity, blocked virtualisation or organisation policy.
 
-## Windows 11 + WSL2
+## Physical Windows 10/11 + WSL2
 
 Use only:
 
@@ -24,7 +24,9 @@ Use only:
 START-NEOLABS-SOC.cmd
 ```
 
-The launcher owns the supported Windows prerequisite flow:
+The Windows path is supported for **physical Windows 10/11 workstations**. Before attempting WSL/Docker setup, the internal bootstrap checks Windows OS type and common VM/VPS hardware identifiers. It fails early when it detects Windows Server or a Windows VM/VPS guest and directs the intern to an Ubuntu/Debian VPS instead.
+
+On a supported Windows workstation the launcher owns:
 
 - WSL2 detection/bootstrap;
 - an existing current WSL2 distribution, or Ubuntu installation only when no Linux distro exists;
@@ -38,7 +40,7 @@ Ubuntu is not mandatory when the intern already has a suitable Kali, Debian, Ubu
 
 Windows can require one restart after enabling WSL or one initial launch of a newly installed Linux distro to create its Linux user. Rerun the same root CMD afterward.
 
-The repository forces LF endings for shell scripts. The launcher also normalises executable permissions of internal shell scripts in case the toolkit was copied through a Windows filesystem.
+If WSL2 cannot start on a **physical** Windows computer because firmware virtualisation is disabled, the intern must enable Intel VT-x/AMD-V/virtualisation in the computer BIOS/UEFI. The launcher cannot change a physical machine's BIOS/UEFI setting itself.
 
 ## Ubuntu / Debian Linux
 
@@ -56,9 +58,29 @@ Run it as the normal Linux account, **not** with `sudo` in front of the whole co
 
 When Docker is absent on Ubuntu/Debian, the launcher installs Docker Engine + Compose v2 and then gives the normal user Docker access. Wazuh runtime commands themselves should then run without `sudo`.
 
+## VPS / remote server policy
+
+For an intern who chooses a VPS or remote server, the supported platform is **Ubuntu or Debian Linux only**.
+
+Recommended images:
+
+- Ubuntu 24.04 LTS;
+- Ubuntu 22.04 LTS;
+- a current Debian release.
+
+Do not provision Windows Server or a Windows desktop VM/VPS for the NeoLabs SOC workstation. WSL2 inside a Windows guest depends on nested virtualisation being exposed by the host hypervisor/provider, which cannot be enabled by the NeoLabs script from inside the guest. The programme avoids that dependency by running Docker Engine/Wazuh directly on Linux VPS hosts.
+
+On a VPS:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+The Wazuh dashboard remains loopback-only. The launcher prints an SSH port-forward example for headless remote access.
+
 ## Other Linux distributions
 
-The root Bash launcher can operate when its prerequisites already exist. Automatic Docker installation is intentionally bounded to Ubuntu/Debian. On another distribution, install Docker Engine + Compose v2 through that distribution's supported method, then rerun the same launcher.
+The root Bash launcher can operate when its prerequisites already exist. Automatic Docker installation is intentionally bounded to Ubuntu/Debian. On another distribution, install Docker Engine + Compose v2 through that distribution's supported method, then rerun the same launcher. For programme-provisioned VPS systems, use Ubuntu/Debian rather than another distribution.
 
 ## Headless Linux server
 
@@ -66,6 +88,9 @@ Wazuh still binds the dashboard to loopback. If the server has no desktop/browse
 
 ## Unsupported configurations
 
+- Windows Server as the SOC workstation;
+- Windows VM/VPS guests as the SOC workstation;
+- VPS/remote SOC workstations using a non-approved OS instead of Ubuntu/Debian;
 - 32-bit operating systems;
 - Docker Compose v1/legacy Docker Toolbox;
 - less than 7 GiB Linux/WSL2-visible memory;
@@ -76,13 +101,13 @@ Wazuh still binds the dashboard to loopback. If the server has no desktop/browse
 
 ## Diagnostics
 
-Windows:
+Windows physical workstation:
 
 ```text
 START-NEOLABS-SOC.cmd doctor
 ```
 
-Linux:
+Linux / Ubuntu / VPS:
 
 ```bash
 ./start-neolabs-soc.sh doctor
