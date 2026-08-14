@@ -1,89 +1,73 @@
-# NeoLabs SOC Level 1 Toolkit — Release Readiness
+# NeoLabs SOC Level 1 Toolkit — Release / Operational Readiness
 
-## Candidate
+**Status date:** 2026-08-14  
+**Release state:** active programme baseline on `main`  
+**Current scenario:** Week 01 — Operation Night Watch
 
-- Release stage: Version 1 release candidate
-- Toolkit branch: `codex/foundation-and-wazuh-scaffold`
-- VCC control-plane branch: `codex/soc-enrolment-control-plane`
-- Intended use: authorised NeoLabs/RIL synthetic SOC Level 1 internship training
-- Deployment status: not merged, not deployed and no real cohort credentials issued
+This document records the current readiness state. It supersedes earlier release-candidate notes that described the VCC/SOC integration as unmerged or undeployed.
 
-## Repository completion checklist
+## Current readiness
 
-| Area | Status | Evidence |
+| Area | Status | Current evidence/behaviour |
 |---|---|---|
-| SOC curriculum | Passed | Eight progressive modules, guided lab, templates and capstone rubric |
-| Wazuh architecture and setup | Passed | Pinned Wazuh 4.14.7 topology, setup scripts and handbook |
-| Student access boundaries | Passed | No direct host, EC2, AWS console, database, private network or mentor-dashboard access |
-| Credential handling | Passed | Local key generation, single-use bootstrap tokens and ignored credential paths |
-| Pod isolation | Passed | Server-derived pod scope and collector cross-pod denial |
-| Certificate exchange | Passed | Isolated CSR exchange with an actual training CA and signed client certificates |
-| Token replay denial | Passed | Consumed token rejected during the end-to-end rehearsal |
-| Client pod selector denial | Passed | Telemetry request containing a pod selector rejected |
-| Credential revocation | Passed | Revoked client certificate denied telemetry access |
-| Assignment revocation | Passed | Revoked assignment denied the previously issued certificate |
-| Synthetic-only telemetry | Passed | Ingestion and collector checks reject events not marked synthetic |
-| Backup and restore | Passed | Temporary Docker volume archived, checksummed, deleted, recreated and restored |
-| Linux workstation profile | Passed | Automated compatibility check in CI |
-| WSL2 and macOS guidance | Documented | Cohort-machine verification remains an operator rollout step |
-| Secret scanning | Passed | Repository history and tracked-file boundary checks |
-| Compose and source validation | Passed | API tests, Python tests, shell syntax, XML, NDJSON, Compose and Dockerfile checks |
-| NeoLabs publication system | Passed | Visual system, print stylesheet and automated PDF build |
-| Final publication set | Passed | Analyst handbook, Wazuh guide, templates, lab pack and complete toolkit generated |
+| SOC curriculum | Ready | foundational modules, Week 1 launch pack, labs, templates and references on `main` |
+| Wazuh architecture | Ready | pinned Wazuh 4.14.7 manager/indexer/dashboard + telemetry collector |
+| Windows startup | Ready | `START-NEOLABS-SOC.cmd` validated on `windows-latest` |
+| WSL2 support | Ready | Kali/Ubuntu/Debian and other current WSL2 distros supported; Ubuntu is not required |
+| VCC access | Ready | server-assigned pod/track; LIVE/replay mode selected by the gateway |
+| Telemetry ingestion | Ready | live mTLS/replay ingestion feeds the same local telemetry file |
+| Rule loading | Ready | startup explicitly reloads the Wazuh manager after current NeoLabs rules are asserted |
+| Index/search verification | Ready | workstation does not report READY until assigned-pod synthetic telemetry is searchable in `wazuh-alerts-*` |
+| Week 1 baseline visibility | Ready | base NeoLabs VCC rule is searchable, so normal baseline events can appear in Threat Hunting |
+| Saved investigation views | Ready with fail-soft provisioning | Night Watch + Telemetry Health objects are provisioned locally when the dashboard API supports import |
+| Doctor diagnostics | Ready | staged auth → telemetry → raw file → rules → Filebeat → indexer → dashboard checks |
+| Freshness monitoring | Ready | latest indexed event age reported; 90-minute warning default |
+| Local retention/disk safety | Ready | 30-day `wazuh-alerts-*` retention; warnings at 85%/92%; server archive unaffected |
+| Credential handling | Ready | local random Wazuh secrets; admin password never printed and may be copied to Windows clipboard |
+| Pod isolation | Ready | server-derived assignment and cross-pod rejection; no client pod-target selector |
+| Synthetic-only boundary | Ready | replay/live ingestion validates synthetic pod-scoped records |
+| Backup/recovery | Ready | CI rehearsal and local controls retained |
+| Publications | Ready | automated branded publication workflow passes on `main` |
 
-## Publication artifacts
+## Student release path
 
-The publication workflow produces:
+On Windows, the normal release path is:
 
-- `NeoLabs_SOC_L1_Analyst_Handbook.pdf`
-- `NeoLabs_SOC_L1_Wazuh_Guide.pdf`
-- `NeoLabs_SOC_L1_Investigation_Templates.pdf`
-- `NeoLabs_SOC_L1_Lab_Pack.pdf`
-- `NeoLabs_SOC_L1_Complete_Toolkit.pdf`
+```text
+git pull
+START-NEOLABS-SOC.cmd
+```
 
-The current visual identity uses a repository-contained NeoLabs text wordmark. No external font or unapproved logo asset is distributed.
+The launcher reuses existing local Wazuh secrets/configuration and does not require students to delete their `.env`, regenerate credentials or reinstall a global CLI after ordinary toolkit updates.
 
-## Operator-controlled rollout tasks
+If the workstation cannot prove telemetry/searchability, use:
 
-The following are intentional release operations, not unfinished implementation:
+```text
+CHECK-NEOLABS-SOC.cmd
+```
 
-1. review and approve both draft pull requests;
-2. merge through the organisation's approved branch-protection process;
-3. configure deployment secrets outside Git;
-4. deploy the VCC control plane in the isolated training environment;
-5. verify DNS, public TLS and private service connectivity;
-6. perform a controlled operator smoke test after deployment;
-7. test the selected cohort's actual Linux, WSL2 or macOS machines;
-8. assign interns to pods and issue individual short-lived enrolment tokens;
-9. publish the reviewed PDF artifacts from a tagged commit;
-10. record rollout date, reviewers, exceptions and rollback owner.
+or `.\neolabs.cmd doctor`. The launcher must not be considered successful merely because the browser/dashboard opens.
+
+## Operational limitations that remain by design
+
+- A student's own laptop/Docker/Internet/disk can fail; the toolkit detects and reports these rather than claiming universal availability.
+- Saved dashboard provisioning is a convenience layer and is fail-soft; Threat Hunting remains the fallback investigation surface.
+- Student runtime scope remains server-controlled. A local edit does not authorise another pod/target.
+- Later-week content can be staged on `main` before release; only the current assignment and server scenario authorise its use.
 
 ## Stop conditions
 
-Do not release to students when:
-
-- either required CI workflow is failing;
-- the control plane is using example or test secrets;
-- public TLS verification is disabled;
-- students can select pod scope locally;
-- indexer or Wazuh API ports are publicly exposed;
-- private keys, tokens or certificates are present in Git;
-- the deployed version differs from the reviewed candidate without a new validation run;
-- a cohort workstation fails the compatibility check;
-- the operator cannot revoke an assignment and credential promptly.
+Do not use a workstation for cohort evidence collection when the toolkit cannot verify assigned-pod telemetry in the indexer, another pod appears, private credentials are exposed, the local indexer/dashboard is externally published, real/production data appears or service instability is observed.
 
 ## Approval record
 
-Complete this section during release review:
-
 ```text
-Toolkit commit:
-VCC control-plane commit:
+Toolkit main commit:
+VCC main commit:
 Technical reviewer:
 Security reviewer:
 Programme owner:
-Publication reviewer:
-Deployment date:
+Deployment/rollout date:
 Rollback owner:
 Approved exceptions:
 ```
