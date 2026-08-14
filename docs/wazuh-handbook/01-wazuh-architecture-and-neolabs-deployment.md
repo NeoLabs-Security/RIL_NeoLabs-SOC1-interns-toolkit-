@@ -2,133 +2,110 @@
 # Architecture, Data Flow and the NeoLabs Student Deployment
 
 **NeoLabs tested baseline:** Wazuh 4.14.7  
-**Module version:** 0.2-draft  
-**Research and review date:** 1 August 2026  
+**Module version:** 1.0  
+**Reconciled:** 14 August 2026  
 **Audience:** Beginner-to-intermediate SOC Level 1 interns
 
-> Wazuh is not one program running in one window. It is a set of components that collect, analyse, store and display security data. Understanding which component performed each action is essential for troubleshooting and investigation.
+> Wazuh is not one program running in one window. It is a set of components that collect, analyse, store and display security data. A SOC analyst should be able to identify which stage produced—or failed to produce—the evidence they are looking for.
+
+For the current programme/runtime summary, also read `../../PROGRAMME_CURRENT_STATE.md`.
+
+---
 
 ## Learning objectives
 
-By the end of this module, a learner should be able to:
+By the end of this module, you should be able to:
 
-- explain the roles of the Wazuh agent, server/manager, indexer and dashboard;
-- describe how a source event becomes a decoded event, alert and searchable document;
-- distinguish event collection, decoding, rule evaluation, indexing and visualisation;
-- explain the difference between Wazuh alerts and archived events;
-- identify the ports commonly used by the standard Wazuh components and explain the NeoLabs exposure restrictions;
-- describe the local containerised student deployment;
-- explain how VCC pod telemetry reaches the learner without installing an agent in the pod;
-- identify which settings the learner controls and which pod-scope settings remain operator-controlled;
-- perform a basic health and data-flow check without exposing secrets.
-
----
-
-## 1. What Wazuh is
-
-Wazuh is an open-source security platform that provides capabilities such as:
-
-- log collection and analysis;
-- security-event detection;
-- file integrity monitoring;
-- security configuration assessment;
-- vulnerability-detection context;
-- malware and rootkit-related monitoring;
-- cloud and container monitoring;
-- inventory and compliance-oriented views;
-- agent management and dashboard investigation.
-
-In practical SOC work, Wazuh acts as a security telemetry and detection platform. It can collect events from agents, files, Windows channels, syslog and supported integrations; decode and evaluate those events; forward alerts for indexing; and present them to analysts in the dashboard.
-
-### Plain-language analogy
-
-Think of a Wazuh deployment as a security newsroom:
-
-- **Agent or collector:** gathers reports from the field.
-- **Manager:** reads the reports, extracts important facts and applies editorial rules about what deserves attention.
-- **Indexer:** organises the reports so they can be found quickly.
-- **Dashboard:** gives analysts an interface for searching, reviewing and visualising the organised information.
-
-The analogy is useful, but remember that a security event can be delayed, duplicated, incorrectly parsed or absent. The analyst must validate the pipeline.
+- explain the roles of the Wazuh manager, Filebeat, indexer and dashboard;
+- explain how the NeoLabs VCC telemetry feed differs from a normal Wazuh endpoint agent;
+- describe how a VCC event becomes a searchable Wazuh alert;
+- distinguish source `event_time`, replay/ingestion metadata and Wazuh index time;
+- explain why an empty dashboard is not automatically evidence that no event occurred;
+- use the current NeoLabs one-click Windows startup and Doctor workflow;
+- explain the Night Watch and Telemetry Health views;
+- identify the student/operator trust boundary and pod-isolation controls;
+- perform a safe first-line data-flow check without exposing credentials.
 
 ---
 
-## 2. Core Wazuh components
+# 1. What Wazuh is
+
+Wazuh is an open-source security platform that can collect and analyse operating-system, application, network, cloud and security telemetry. In a typical deployment it combines endpoint agents/collectors, a Wazuh server or manager, Filebeat, a Wazuh indexer and a Wazuh dashboard.
+
+For SOC work, think of the stack as a pipeline:
+
+```text
+source event
+→ collection
+→ parsing/decoding
+→ rule evaluation
+→ alert creation
+→ forwarding
+→ indexing
+→ search/dashboard
+```
+
+A failure at one stage can make later stages look empty even when earlier stages are healthy. That is why NeoLabs troubleshooting verifies the full chain rather than only checking that Docker containers are running.
+
+---
+
+# 2. Core Wazuh components
 
 ## 2.1 Wazuh agent
 
-A **Wazuh agent** is software installed on a monitored endpoint. Depending on configuration, it can collect or produce information such as:
+A Wazuh agent is software installed on a monitored endpoint. It can collect operating-system/application logs, Windows Event channels, file-integrity activity, system inventory and other endpoint security information.
 
-- operating-system and application logs;
-- Windows Event channels;
-- file-integrity changes;
-- system inventory;
-- security configuration assessment results;
-- selected command or audit output;
-- malware or rootkit-related observations;
-- agent health and status information.
+### NeoLabs VCC boundary
 
-The agent normally communicates with the Wazuh server over an authenticated channel.
+SOC interns do **not** install or administer Wazuh agents inside VCC application pods. The VCC remains operator-managed. The programme exports approved synthetic pod telemetry through a separate protected NeoLabs feed.
 
-### Important analyst limitation
+Therefore:
 
-An agent can report only what its operating system, applications and Wazuh configuration make available. An active agent does not guarantee that every required event category is enabled or correctly parsed.
+- absence of a pod-named Wazuh agent does not mean the VCC feed is absent;
+- the student does not receive pod SSH/container access merely because Wazuh can see pod telemetry;
+- student pod scope is controlled by the NeoLabs access service, not by a local Wazuh agent selector.
 
-### VCC boundary
+## 2.2 Wazuh manager
 
-SOC interns do **not** install, enrol or administer Wazuh agents inside VCC pods. The pods remain operator-managed. The approved VCC log exporter creates a separate synthetic telemetry feed that is delivered to the learner’s local collector.
+The Wazuh manager analyses received events. Important responsibilities include:
 
-## 2.2 Wazuh server or manager
+- reading configured log sources;
+- decoding/parsing events;
+- applying rules and correlations;
+- writing alert records;
+- coordinating supported Wazuh functions and API access.
 
-The **Wazuh server** includes the manager processes responsible for receiving, decoding, analysing and coordinating Wazuh data.
-
-Important functions include:
-
-- receiving agent or approved collector data;
-- pre-decoding common message information;
-- applying decoders to extract fields;
-- applying rules and correlation conditions;
-- writing alert and archive records;
-- managing agent registration and grouping where used;
-- exposing the Wazuh server API;
-- coordinating supported integrations and active-response functions.
-
-The container in the NeoLabs stack is named:
+The NeoLabs Compose service is:
 
 ```text
 wazuh.manager
 ```
 
-### Manager is not the index
-
-The manager analyses events, but analysts normally search indexed alert documents through the dashboard. When troubleshooting, distinguish “the manager generated the alert” from “the indexer stored and returned the alert.”
-
-## 2.3 Filebeat in the Wazuh server container
-
-The official single-node Wazuh container topology includes Filebeat configuration in the manager container. Filebeat forwards Wazuh alert data securely to the Wazuh indexer.
-
-A problem between manager and indexer can produce this situation:
+The current manager configuration reads the shared NeoLabs VCC NDJSON stream at:
 
 ```text
-Manager alert file contains the alert
-        but
-Dashboard search does not show it
+/var/ossec/logs/vcc/vcc-events.ndjson
 ```
 
-That difference is a useful troubleshooting clue.
+with JSON log format.
+
+## 2.3 Filebeat
+
+Filebeat forwards Wazuh alerts from the manager toward the indexer.
+
+This creates an important troubleshooting distinction:
+
+```text
+manager parsed/matched the event
+but
+Filebeat/indexer did not make it searchable
+```
+
+That situation is different from a collector failure or a decoder/rule failure.
 
 ## 2.4 Wazuh indexer
 
-The **Wazuh indexer** is the search and storage component based on OpenSearch technology. It stores documents in indices and makes them searchable.
-
-The indexer handles:
-
-- index creation and storage;
-- field mappings;
-- distributed search functions;
-- security and access-control configuration;
-- queries and aggregations;
-- data retention through index-management policies where configured.
+The Wazuh indexer is the search/storage layer based on OpenSearch technology. It stores documents, mappings and searchable indices.
 
 The NeoLabs Compose service is:
 
@@ -136,21 +113,17 @@ The NeoLabs Compose service is:
 wazuh.indexer
 ```
 
-### Field mapping matters
+Week 1 investigation primarily uses:
 
-An indexed value can be mapped as a date, number, IP address, keyword or analysed text. Mapping affects equality, range, sorting and aggregation behaviour. A field being visible in JSON does not guarantee that every query type will work correctly.
+```text
+wazuh-alerts-*
+```
+
+Normal NeoLabs VCC baseline events are deliberately eligible to become searchable alerts so Operation Night Watch can show normal activity, not only high-severity detections.
 
 ## 2.5 Wazuh dashboard
 
-The **Wazuh dashboard** is the browser interface for:
-
-- security-event and alert investigation;
-- agent and server management views;
-- security modules and compliance-oriented dashboards;
-- Wazuh Query Language filters in supported areas;
-- OpenSearch-backed Discover and visualisation functions;
-- saved searches and dashboards;
-- component configuration available to the logged-in role.
+The Wazuh dashboard provides the analyst interface for search, Threat Hunting/Discover, saved objects, dashboards and Wazuh modules.
 
 The NeoLabs service is:
 
@@ -158,428 +131,442 @@ The NeoLabs service is:
 wazuh.dashboard
 ```
 
-The standard student profile publishes only the dashboard to the host and binds it to loopback:
+The normal student profile binds the dashboard to loopback:
 
 ```text
-127.0.0.1:8443
+https://127.0.0.1:8443
 ```
 
-This means another device cannot normally reach the dashboard over the network unless the learner or operator deliberately changes the profile. Such a change is not authorised by default.
+The dashboard, Wazuh API and indexer must not be exposed publicly merely to simplify student access.
 
 ---
 
-## 3. How Wazuh analyses an event
-
-A simplified Wazuh analysis flow is:
+# 3. The current NeoLabs student topology
 
 ```text
-Raw event
-  → pre-decoding
-  → decoder matching and field extraction
-  → rule evaluation
-  → alert or no alert
-  → alert file
-  → Filebeat forwarding
-  → indexer document
-  → dashboard search and visualisation
+VCC synthetic pod activity
+        │
+        ├─ LIVE: protected pod-scoped telemetry channel
+        │
+        └─ REPLAY: authorised archived pod/scenario telemetry
+                    │
+                    ▼
+      vcc.telemetry.collector / replay append
+                    │
+          shared vcc_telemetry volume
+                    │
+                    ▼
+ /var/ossec/logs/vcc/vcc-events.ndjson
+                    │
+                    ▼
+              wazuh.manager
+        JSON decoder + NeoLabs rules
+                    │
+                    ▼
+                 Filebeat
+                    │
+                    ▼
+              wazuh.indexer
+             wazuh-alerts-*
+                    │
+                    ▼
+              wazuh.dashboard
+  Night Watch / Telemetry Health / Threat Hunting
 ```
 
-## 3.1 Raw event
+## Persistence
 
-A raw event is the source record received by Wazuh.
+Docker named volumes retain manager/indexer/dashboard state across ordinary stops. A normal `git pull` or stack restart does not require students to delete Wazuh volumes or regenerate credentials.
 
-Synthetic VCC example:
+A destructive reset is a separate local-only operation and is **not** normal troubleshooting.
+
+---
+
+# 4. How VCC telemetry reaches the student
+
+The programme separates **telemetry access** from **infrastructure access**.
+
+A SOC intern receives:
+
+- the SOC toolkit;
+- a private NeoLabs Access Code;
+- the server-assigned pod/track/scenario context;
+- a local Wazuh workstation;
+- only the synthetic telemetry/evidence authorised for that assignment.
+
+The intern does **not** receive:
+
+- EC2 or pod shell access;
+- database/container administration;
+- broad AWS credentials;
+- another pod's telemetry;
+- mentor ground truth;
+- a client-side control that authorises a different pod.
+
+## Server-authoritative scope
+
+The student may type a pod number during login as confirmation, but the server-side assignment is authoritative. A local edit cannot turn a student into another pod/track.
+
+Both live and replay paths validate the assigned scope. Replay additionally validates that records are synthetic, belong to the assigned pod and contain required event fields before they are appended to the local Wazuh telemetry stream.
+
+---
+
+# 5. LIVE versus REPLAY
+
+The VCC uses a cost-aware hybrid runtime. The main VCC EC2 does not have to remain on for every hour of an investigation.
+
+The same student access flow can represent different authorised SOC states:
+
+- **LIVE** — protected live pod telemetry during approved interactive windows;
+- **REPLAY** — archived telemetry for the assigned pod/scenario;
+- **CLOUD_LIVE / ENDPOINT_LIVE** — scenario-specific cloud/endpoint evidence surfaces where applicable;
+- **OFFLINE/no surface** — the toolkit must not pretend data is available.
+
+## Event time during replay
+
+Replay preserves the original source:
+
+```text
+event_time
+```
+
+and adds replay metadata separately.
+
+For an incident timeline, order events by original event time unless the assignment specifically asks you to analyse collection/replay delay.
+
+---
+
+# 6. How Wazuh analyses a NeoLabs event
+
+A simplified event path is:
+
+```text
+NDJSON event
+→ JSON decoding
+→ NeoLabs base rule
+→ child/correlation rules where applicable
+→ alert record
+→ Filebeat
+→ Wazuh indexer
+→ dashboard search
+```
+
+A synthetic VCC event may contain fields such as:
 
 ```json
 {
   "schema_version": "1.0",
   "event_id": "evt-auth-0009",
-  "event_time": "2026-08-01T09:18:07Z",
+  "event_time": "2026-08-14T09:18:07Z",
   "pod_id": "pod-03",
   "event_type": "authentication",
   "action": "login",
   "outcome": "success",
-  "user": "svc-backup",
+  "user": "student.synthetic",
   "source_ip": "203.0.113.44",
-  "session_id": "sess-suspect-902",
+  "session_id": "sess-902",
+  "correlation_id": "corr-902",
   "synthetic": true
 }
 ```
 
-## 3.2 Pre-decoding
+Wazuh may expose NeoLabs dynamic fields under `data.*`. In the current mapping, the NeoLabs user identity is commonly visible as `data.dstuser` in the saved Week 1 view.
 
-Pre-decoding identifies common header information in supported text formats, such as timestamps, hostnames and program names. Structured JSON may already carry these values as fields.
+---
 
-## 3.3 Decoding
+# 7. NeoLabs custom rules
 
-A **decoder** identifies the event format and extracts named fields.
+The current NeoLabs VCC rule set includes training rules for:
 
-The VCC collector writes NDJSON. The Wazuh manager reads each JSON line using `log_format=json`, and Wazuh’s JSON decoder can expose dynamic fields such as:
+- normal VCC baseline events;
+- authentication failures;
+- repeated authentication failures;
+- successful authentication;
+- success after earlier failures;
+- sensitive account changes;
+- protected authorisation denials;
+- telemetry collection/parser/visibility problems.
+
+The base VCC event rule is intentionally searchable at a non-zero alert level so normal Week 1 activity can appear in `wazuh-alerts-*`.
+
+Telemetry-health problems are represented around rule:
 
 ```text
-pod_id
-event_type
-outcome
-user
-source_ip
-session_id
+100150
 ```
 
-### Decoder success does not equal detection
+A Wazuh rule match means the configured condition was observed. It does **not** automatically prove malicious intent or impact.
 
-A record can be decoded correctly and still generate no alert because no rule condition was satisfied or because the matching rule’s level is below the alert threshold.
+---
 
-## 3.4 Rule evaluation
+# 8. Current Windows setup and startup
 
-A **rule** evaluates decoded information. A rule can match:
+The normal student workflow has changed from the older manual enrolment sequence.
 
-- one field or message pattern;
-- several fields together;
-- an event that follows an earlier rule match;
-- a repeated event count within a time window;
-- the same user, source, destination or another correlation value;
-- child rules that inherit context from a parent rule.
+## First/current startup
 
-The NeoLabs rules use custom IDs in the documented Wazuh custom range and currently cover synthetic authentication, access-control and telemetry-health events.
+From the latest toolkit checkout:
 
-### Rule result is a detection decision
-
-When a rule matches, it tells the analyst that the configured condition was observed. It does not automatically prove malicious intent or successful impact.
-
-## 3.5 Alert creation
-
-Rules at or above the configured alert threshold create alert records. The alert includes Wazuh metadata such as:
-
-- rule ID;
-- rule level;
-- rule description;
-- rule groups;
-- decoded fields;
-- source location;
-- manager or agent context;
-- timestamp.
-
-## 3.6 Indexing
-
-Filebeat forwards alerts to the indexer. The indexer creates searchable documents, usually under an index pattern such as:
+1. Start Docker Desktop with WSL2 integration.
+2. Double-click:
 
 ```text
-wazuh-alerts-*
+START-NEOLABS-SOC.cmd
 ```
 
-## 3.7 Dashboard display
+The launcher automatically:
 
-The dashboard queries indexed documents. Filters, selected time field, browser time zone and data view affect what is displayed.
+1. verifies WSL2/toolkit prerequisites;
+2. performs first-time Wazuh preparation only when needed;
+3. preserves an existing `.env` and Wazuh data;
+4. reuses a valid NeoLabs session or asks for assigned pod + private Access Code;
+5. connects to the current authorised LIVE/REPLAY surface;
+6. starts/waits for manager, indexer, dashboard and telemetry collector;
+7. reloads the current NeoLabs rule file in the manager;
+8. proves an assigned-pod VCC event is searchable in `wazuh-alerts-*`;
+9. reports latest-event freshness;
+10. applies/checks local alert-index retention/disk safety;
+11. provisions Night Watch/Telemetry Health saved objects where supported;
+12. copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
+13. opens the local dashboard.
 
----
-
-## 4. Alerts and archives
-
-## 4.1 Alert data
-
-Alert data contains events that matched Wazuh rules at or above the configured alerting level.
-
-Useful for:
-
-- alert triage;
-- rule and severity review;
-- dashboards and common investigations;
-- tracking detection volume.
-
-Limitation: events that did not become alerts are absent.
-
-## 4.2 Archive data
-
-Wazuh archives can contain all received events when archive logging and indexing are enabled.
-
-Useful for:
-
-- finding context that did not trigger a rule;
-- validating rule coverage;
-- searching benign or low-level activity;
-- investigating parser and detection gaps.
-
-Costs and risks:
-
-- much higher storage volume;
-- more sensitive raw content;
-- additional privacy and retention requirements;
-- increased indexer workload.
-
-NeoLabs will enable indexed archives only after resource, privacy and retention testing. The handbook must not instruct interns to assume archive data is always present.
-
----
-
-## 5. Common ports and the NeoLabs restrictions
-
-Official Wazuh deployments commonly use ports such as:
-
-| Port | Common purpose | NeoLabs student profile |
-|---|---|---|
-| `1514/TCP` | Wazuh agent event communication | Not published to the host by default |
-| `1515/TCP` | Agent enrolment service | Not published to the host by default |
-| `514/UDP` or TCP | Syslog, where configured | Not published in the initial student profile |
-| `55000/TCP` | Wazuh server API | Internal only; not host-published |
-| `9200/TCP` | Wazuh indexer/OpenSearch API | Internal only; not host-published |
-| `5601/TCP` inside container | Dashboard service | Mapped to loopback `8443` on the host |
-
-### Why the restrictions exist
-
-Publishing a service means making it reachable from the host network. Unnecessary exposure increases the attack surface and can reveal administrative APIs or indexed data.
-
-The initial student stack uses a private Compose network for Wazuh components. Only the VCC collector has outbound egress to the approved telemetry endpoint.
-
----
-
-## 6. NeoLabs container topology
+Do not begin cohort analysis until the launcher displays:
 
 ```text
-Host workstation
-│
-├─ 127.0.0.1:8443
-│    └─ wazuh.dashboard
-│          ├─ internal TLS → wazuh.indexer
-│          └─ internal TLS → wazuh.manager API
-│
-├─ wazuh.manager
-│    ├─ reads /var/ossec/logs/vcc/vcc-events.ndjson
-│    ├─ JSON decoding
-│    ├─ NeoLabs custom rules
-│    └─ Filebeat → wazuh.indexer
-│
-├─ wazuh.indexer
-│    └─ internal-only indexed alert storage
-│
-└─ vcc.telemetry.collector
-     ├─ outbound HTTPS/mTLS only
-     ├─ server-issued pod scope
-     ├─ synthetic-event validation
-     └─ shared volume → manager input file
+SOC WORKSTATION READY
 ```
 
-### Persistence
+## No global CLI/manual gateway requirement
 
-Docker named volumes retain Wazuh configuration, index data, queues and dashboard state across ordinary stops. The guarded reset script removes volumes only after explicit destructive confirmation.
+For the normal Windows programme path, students do **not** need to:
 
-### Generated files
+- run `python -m pip install -e .`;
+- add Python Scripts to Windows PATH;
+- copy a private/manual gateway URL;
+- manually enrol with a token file;
+- manually select another telemetry target.
 
-Official Wazuh configuration and certificates are generated into ignored local directories. They are not committed because they include environment-specific cryptographic material and generated configuration.
+Advanced/manual scripts still exist for troubleshooting and non-Windows operation, but they are not the primary student onboarding sequence.
 
 ---
 
-## 7. VCC pod telemetry without pod access
+# 9. Wazuh dashboard login
 
-The VCC model separates **telemetry access** from **infrastructure access**.
-
-The intern receives:
-
-- a local Wazuh environment;
-- a short-lived enrolment token;
-- a client certificate issued for the operator-recorded pod;
-- synthetic events exported from that pod’s scenario.
-
-The intern does not receive:
-
-- pod SSH access;
-- an AWS role;
-- database credentials;
-- container access;
-- private pod routes;
-- a pod log-file mount;
-- the ability to select another pod.
-
-### End-to-end scope enforcement
+After READY, the normal dashboard is:
 
 ```text
-Operator assignment
-  → one-time token
-  → locally generated private key
-  → certificate bound to assignment
-  → Nginx mTLS verification
-  → API lookup of active assignment
-  → database query restricted to assigned pod
-  → collector verifies response pod and every event pod
+https://127.0.0.1:8443
 ```
 
-This is stronger than a shared password because each credential is unique, revocable and tied to an installation and assignment.
-
----
-
-## 8. Local setup sequence
-
-Run from `wazuh-stack/` after reading its README.
-
-### Step 1 — Generate local secrets
-
-```bash
-bash scripts/generate-local-secrets.sh
-```
-
-Creates `.env`, the local installation identifier and protected directories.
-
-### Step 2 — Receive operator material
-
-The operator provides:
-
-- the VCC HTTPS base URL;
-- the public enrolment CA certificate;
-- a short-lived token file.
-
-The operator does not provide a pod password.
-
-### Step 3 — Prepare official Wazuh files
-
-```bash
-bash scripts/prepare-stack.sh
-```
-
-This checks out the exact official Wazuh Docker tag and commit, copies the single-node configuration, generates local indexer password hashes and creates Wazuh TLS certificates.
-
-### Step 4 — Run preflight
-
-```bash
-bash scripts/preflight.sh
-```
-
-This checks required tools, exact version pins, file permissions, placeholder secrets, dashboard binding, memory guidance and indexer kernel settings.
-
-### Step 5 — Enrol
-
-```bash
-bash scripts/enrol-vcc.sh --token-file /protected/path/bootstrap-token.txt
-```
-
-The private key remains on the workstation. The client sends no pod selector.
-
-### Step 6 — Start
-
-```bash
-bash scripts/start.sh
-```
-
-The script validates the Compose model, builds the collector, starts services and waits for health checks.
-
----
-
-## 9. Health checks
-
-Run:
-
-```bash
-bash scripts/health-check.sh
-```
-
-Expected output lists:
+Use:
 
 ```text
-wazuh.manager
-wazuh.indexer
-wazuh.dashboard
-vcc.telemetry.collector
+Username: admin
+Password: the locally generated WAZUH_INDEXER_PASSWORD
 ```
 
-### Healthy but unenrolled
+On Windows, the launcher copies the password to the clipboard without displaying it. Press `Ctrl+V` at the login page, then replace the clipboard contents with non-sensitive text after login.
 
-The collector can report a healthy waiting state before credentials are installed. This means the collector process is functioning; it does not mean VCC telemetry is arriving.
+The following are **not** the human dashboard password:
 
-### Manager healthy but no alerts
+- `WAZUH_API_PASSWORD` — internal Wazuh API/service communication;
+- `WAZUH_DASHBOARD_PASSWORD` — internal dashboard service account.
 
-Possible reasons include:
-
-- collector unenrolled or disconnected;
-- no new telemetry;
-- manager input file absent or unchanged;
-- JSON decoding failure;
-- rules not loaded;
-- events matched only level-zero parent rules;
-- Filebeat/indexer problem;
-- dashboard time/filter problem.
-
-Health is component-specific. One green component does not guarantee the complete pipeline works.
+Never paste the local Wazuh password into an assignment, screenshot, Slack post or Git commit.
 
 ---
 
-## 10. Basic data-flow validation
+# 10. Night Watch and Telemetry Health views
 
-Use this order:
+## NeoLabs — Operation Night Watch
 
-1. **Collector health:** Is it enrolled and polling successfully?
-2. **Collector cursor:** Is the stored cursor advancing?
-3. **Shared NDJSON file:** Are new valid lines present in the telemetry volume?
-4. **Manager configuration:** Is the VCC localfile input loaded?
-5. **Decoder test:** Does `wazuh-logtest` expose expected fields?
-6. **Rule test:** Does the synthetic record match the intended rule?
-7. **Manager alert file:** Was an alert written?
-8. **Filebeat:** Is forwarding healthy?
-9. **Indexer:** Is the cluster healthy and index writable?
-10. **Dashboard:** Is the correct data view and absolute time range selected?
+The toolkit attempts to provision a Week 1 pod-scoped saved view/dashboard containing important investigation fields such as:
 
-Do not skip directly to changing rules when the collector is not delivering data.
+- `data.pod_id`;
+- `data.event_type`;
+- synthetic user identity;
+- `data.source_ip`;
+- `data.outcome`;
+- `data.correlation_id`;
+- Wazuh `rule.id`, `rule.level`, `rule.description`;
+- original `data.event_time`.
 
----
+Use it to establish normal authentication/application/API behaviour and build reusable Week 1 searches.
 
-## 11. Common beginner misunderstandings
+## NeoLabs — Telemetry Health
 
-### “The dashboard created the alert”
+This view focuses on telemetry-quality problems, especially rule `100150`, so students can distinguish “no suspicious event” from “the collection/search pipeline is unhealthy.”
 
-The manager’s rule engine created the alert. The dashboard displayed an indexed representation.
-
-### “The agent is active, so every log is collected”
-
-Agent connectivity and source coverage are different questions.
-
-### “No alert means no event”
-
-The event may have failed to generate, collect, decode, match, forward, index or appear under the selected filters.
-
-### “HTTP 200 proves the action was authorised”
-
-A 200 response records a server outcome, not the legitimacy of the requester.
-
-### “Changing `POD_LABEL` changes my pod”
-
-`POD_LABEL` is local display information. Authorised scope comes from the server-side assignment and certificate.
-
-### “A high rule level proves an incident”
-
-Rule level expresses detection importance configured by the rule author. The analyst must still validate context and impact.
+Saved-object provisioning is fail-soft. If an import is unavailable on a local dashboard instance, Threat Hunting/Discover remains the supported fallback.
 
 ---
 
-## 12. Guided exercise
+# 11. Freshness and local retention
 
-Using the synthetic authentication dataset:
+The current toolkit reports the newest assigned-pod event indexed in Wazuh.
 
-1. identify the raw JSON fields;
-2. identify which fields the JSON decoder should expose;
-3. identify the NeoLabs parent rule and relevant child rules;
-4. predict which records should create alerts;
-5. explain why a level-zero parent rule may not appear as an alert;
-6. run the approved local rule test after the stack is prepared;
-7. find the indexed alert in the dashboard;
-8. record manager, indexer and dashboard evidence separately;
-9. state one failure that could occur at each pipeline stage.
+Default freshness warning:
 
-## 13. Review questions
+```text
+90 minutes
+```
 
-1. What is the practical difference between the manager and indexer?
-2. What does a decoder do?
-3. What does a rule match prove?
-4. Why can manager alerts exist without appearing in the dashboard?
-5. What is the difference between alert and archive data?
-6. Why are ports 55000 and 9200 not published in the student profile?
-7. How does VCC provide pod telemetry without giving pod access?
-8. Why is a unique client certificate stronger than one shared pod password?
-9. What does a healthy but unenrolled collector mean?
-10. List the ten data-flow validation stages in order.
+This is a health signal—not proof that an attack should happen every 90 minutes.
+
+Current local alert-index defaults:
+
+```text
+wazuh-alerts-* retention: 30 days
+filesystem warning:       85%
+filesystem critical:      92%
+```
+
+This retention applies only to the student's local Wazuh alert indices. It does **not** delete VCC server-side telemetry archives/evidence and does not force-overwrite unrelated existing index-management policies.
 
 ---
 
-## Authoritative references
+# 12. NeoLabs Doctor
 
-- Wazuh official documentation: architecture, Wazuh components, log data analysis and event logging.
-- Wazuh official Docker repository, release `v4.14.7`.
-- Wazuh official documentation: JSON decoder, custom rules, rule testing, Wazuh indices and API security.
-- OpenSearch documentation: indices, mappings and Query DSL.
-- Docker documentation: Compose networks, volumes, health checks and container security.
-- `research/AUTHORITATIVE_SOURCE_REGISTER.md`.
+On Windows, double-click:
+
+```text
+CHECK-NEOLABS-SOC.cmd
+```
+
+or run:
+
+```powershell
+.\neolabs.cmd doctor
+```
+
+Doctor checks the pipeline in order:
+
+```text
+1. NeoLabs authentication
+2. current LIVE/REPLAY telemetry surface
+3. raw VCC event file
+4. Wazuh rule engine
+5. Filebeat
+6. Wazuh indexer
+7. Wazuh dashboard
+```
+
+It also reports telemetry freshness and local index/disk state.
+
+This is the preferred first troubleshooting tool because it prevents the common mistake of changing Wazuh rules when the real failure is earlier in the pipeline.
+
+---
+
+# 13. Why an empty dashboard may be misleading
+
+Before writing “no events were found,” confirm:
+
+1. Doctor/indexer health passes;
+2. the latest VCC event is reasonably fresh for the current assignment/window;
+3. the filter uses the assigned `pod_id`;
+4. the correct `wazuh-alerts-*` data view is selected;
+5. the time range includes the original event times;
+6. Telemetry Health does not show a collection/parser/visibility problem.
+
+A zero-result query becomes useful evidence only after these assumptions are checked.
+
+---
+
+# 14. Alerts versus archives
+
+`wazuh-alerts-*` contains searchable alert documents. The current NeoLabs Week 1 base rule ensures normal approved VCC baseline events can be represented there.
+
+Wazuh archive indexing, when enabled, can provide additional events that did not become alerts. Archive indexing may not be available on every student workstation because it increases storage/resource/privacy requirements.
+
+Do not assume `wazuh-archives-*` exists. If the assignment needs evidence that is not available in alerts, record the visibility limitation and use only mentor-approved evidence sources.
+
+---
+
+# 15. Network exposure and security boundaries
+
+Common Wazuh ports can include agent communication/enrolment, server API, indexer and dashboard ports. In the NeoLabs student workstation:
+
+- the dashboard is loopback-only by default;
+- the Wazuh API/indexer are not intentionally published for student network access;
+- internal components communicate on the Compose network;
+- VCC telemetry scope is server-managed;
+- students must not expose the local stack publicly for convenience.
+
+The fact that Wazuh is a security tool does not make an insecure Wazuh deployment acceptable.
+
+---
+
+# 16. Safe manual checks
+
+Advanced/manual checks remain available from the toolkit root, for example:
+
+```bash
+bash wazuh-stack/scripts/compatibility-check.sh
+bash wazuh-stack/scripts/health-check.sh
+bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180
+bash wazuh-stack/scripts/telemetry-freshness.sh
+bash wazuh-stack/scripts/doctor.sh
+```
+
+Use `wazuh-logtest` through the supported verifier/Doctor workflow when checking decoding/rules. Do not broadly raise rule levels, disable TLS, publish indexer/API ports or delete volumes simply to make a dashboard show data.
+
+---
+
+# 17. Evidence and confidentiality
+
+Useful Week 1 evidence includes:
+
+- Wazuh event/rule IDs;
+- assigned pod and explicit time range;
+- relevant source event fields;
+- saved/reproducible filters;
+- original event-time timeline;
+- telemetry-health/freshness notes;
+- redacted screenshots.
+
+Never submit:
+
+- NeoLabs Access Code;
+- Wazuh local password;
+- session token;
+- signed private URL;
+- private key/certificate contents;
+- AWS credentials;
+- another pod's data;
+- real customer/production information.
+
+---
+
+# 18. Week 1 practical checklist
+
+For Operation Night Watch:
+
+1. Start with `START-NEOLABS-SOC.cmd`.
+2. Wait for `SOC WORKSTATION READY`.
+3. Log in to the local Wazuh dashboard as `admin`.
+4. Open NeoLabs — Operation Night Watch or Threat Hunting.
+5. Confirm your assigned pod filter.
+6. Record latest-event freshness and inspect Telemetry Health.
+7. Find normal authentication and application/API activity.
+8. Pivot using identity/source/session/correlation fields.
+9. Save/reuse at least three baseline searches.
+10. Build a short original-event-time timeline.
+11. Record one visibility limitation.
+12. Submit only redacted evidence through the central assignments repository.
+
+---
+
+# 19. Completion standard
+
+You understand the NeoLabs Wazuh architecture when you can answer all of these without guessing:
+
+- Where did this event originate?
+- How did it reach the local telemetry file?
+- Did Wazuh decode and match a rule?
+- Did Filebeat/indexer make it searchable?
+- Am I using the correct assigned pod and time range?
+- Is the newest telemetry fresh/healthy?
+- Is this rule an observation or proof of compromise?
+- What can the current telemetry prove, and what can it not prove?
+
+That pipeline awareness is one of the most important habits of a Level 1 SOC analyst.
