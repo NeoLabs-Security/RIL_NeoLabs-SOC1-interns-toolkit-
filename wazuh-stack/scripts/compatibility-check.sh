@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MIN_MEMORY_GIB="${SOC_MIN_MEMORY_GIB:-8}"
+# The single-node training stack can run in a constrained Week 1 workstation with
+# 7 GiB visible to the Linux/WSL2 VM. Eight GiB remains the preferred floor and
+# 12 GiB is recommended for smoother indexing and dashboard use.
+HARD_MIN_MEMORY_GIB="${SOC_HARD_MIN_MEMORY_GIB:-7}"
+PREFERRED_MEMORY_GIB="${SOC_MIN_MEMORY_GIB:-8}"
 RECOMMENDED_MEMORY_GIB="${SOC_RECOMMENDED_MEMORY_GIB:-12}"
 MIN_DISK_GIB="${SOC_MIN_DISK_GIB:-25}"
 STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,6 +15,16 @@ WARNINGS=0
 pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1"; WARNINGS=$((WARNINGS + 1)); }
 fail() { printf '[FAIL] %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+
+# A common Windows checkout failure is CRLF line endings. Bash then parses
+# `pipefail\r` as an invalid option. Give a useful diagnosis instead of leaving
+# the learner to debug the shell itself.
+if grep -q $'\r' "$0" 2>/dev/null; then
+  printf '[FAIL] This script has Windows CRLF line endings.\n' >&2
+  printf '       From the repository root run: git config core.autocrlf false && git reset --hard\n' >&2
+  printf '       Or run: sed -i '\''s/\r$//'\'' "%s"\n' "$0" >&2
+  exit 1
+fi
 
 os_name="$(uname -s 2>/dev/null || echo unknown)"
 architecture="$(uname -m 2>/dev/null || echo unknown)"
@@ -68,10 +82,12 @@ elif command -v sysctl >/dev/null 2>&1; then
 fi
 
 if [[ -n "${memory_gib}" ]]; then
-  if (( memory_gib < MIN_MEMORY_GIB )); then
-    fail "Only ${memory_gib} GiB RAM detected; at least ${MIN_MEMORY_GIB} GiB is required."
+  if (( memory_gib < HARD_MIN_MEMORY_GIB )); then
+    fail "Only ${memory_gib} GiB RAM detected; this training stack needs at least ${HARD_MIN_MEMORY_GIB} GiB visible to Linux/WSL2."
+  elif (( memory_gib < PREFERRED_MEMORY_GIB )); then
+    warn "${memory_gib} GiB RAM detected. Week 1 may run, but ${PREFERRED_MEMORY_GIB} GiB is the preferred minimum; close other heavy applications before starting Wazuh."
   elif (( memory_gib < RECOMMENDED_MEMORY_GIB )); then
-    warn "${memory_gib} GiB RAM detected; ${RECOMMENDED_MEMORY_GIB} GiB or more is recommended."
+    warn "${memory_gib} GiB RAM detected; ${RECOMMENDED_MEMORY_GIB} GiB or more is recommended for smoother Wazuh use."
   else
     pass "${memory_gib} GiB RAM detected."
   fi
@@ -91,9 +107,9 @@ else
 fi
 
 if [[ "${platform}" == "Windows shell" ]]; then
-  fail "Run the toolkit inside WSL2 rather than Git Bash, MSYS or Cygwin."
+  fail "Git Bash/MSYS/Cygwin cannot host the Wazuh Linux stack. Run the toolkit in any WSL2 Linux distro (Ubuntu, Kali, Debian, etc.) with Docker Desktop WSL integration enabled. A separate Ubuntu Server VM is not required."
 elif [[ "${platform}" == "Windows with WSL2" ]]; then
-  pass "WSL2 environment detected."
+  pass "WSL2 environment detected. Any supported Linux distro is acceptable; Ubuntu is not mandatory."
 elif [[ "${platform}" == "macOS" && "${architecture}" == "arm64" ]]; then
   warn "Apple Silicon detected. Confirm every pinned Wazuh image publishes an arm64 manifest; use an x86_64 Linux/WSL2 machine when a release is unavailable."
 fi
