@@ -1,51 +1,64 @@
 # Start Here — SOC Analyst Level 1
 
-Welcome to the **NeoLabs × RIL SOC Level 1 Intern Toolkit**. This repository contains SOC learning material, the local Wazuh workstation, investigation templates and the student-side NeoLabs access client. Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`.
+Welcome to the **NeoLabs × RIL SOC Level 1 Intern Toolkit**. Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`.
 
 For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md).
 
-## Windows — recommended start
+## Choose your operating system
 
-1. Pull the latest toolkit.
-2. Double-click:
+### Windows
+
+Pull the latest toolkit, then double-click:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-That is the normal **single starting point**. The launcher first runs the NeoLabs Docker/WSL2 bootstrap, then handles first-run Wazuh preparation, authentication, LIVE/REPLAY connection, Wazuh health, current rule reload, assigned-pod telemetry indexing verification, freshness/retention checks, Night Watch saved-object provisioning and local dashboard login assistance.
+This is the only normal Windows entry point. It owns WSL2/Docker Desktop setup, first-run Linux prerequisites, the required Wazuh indexer kernel setting, first-run Wazuh preparation, NeoLabs authentication, LIVE/REPLAY connection, Wazuh health, telemetry-to-index verification, freshness/retention checks, saved Night Watch views and dashboard startup.
 
-The Docker bootstrap automatically:
+If Windows has just enabled WSL or installed a Linux distribution, Windows may require a restart and/or one first launch of the Linux distro to create its Linux user. Rerun the same CMD afterward; do not start picking individual setup scripts.
 
-- verifies WSL is available and the default Linux distro is actually WSL2;
-- sets WSL2 as the default for future distro installs;
-- installs Docker Desktop through Windows Package Manager (`winget`) when Docker Desktop is missing and `winget` is available;
-- starts Docker Desktop when it is installed but stopped;
-- requires/attempts to select Docker Desktop's Linux container engine;
-- waits for the Docker daemon to become ready; and
-- proves `docker` is available inside the same default WSL2 distro used by the SOC toolkit.
-
-Windows can still require a **one-time restart or first Linux-distro initialization** when WSL itself has just been enabled. Docker Desktop can also require a one-time first-run/licence/update prompt, and a non-default distro may require enabling it under **Docker Desktop > Settings > Resources > WSL Integration**. The toolkit detects these states and stops with a specific instruction rather than pretending setup succeeded.
-
-If Docker Desktop is missing and automatic `winget` installation is unavailable/fails, the helper opens Docker's official Windows installation page as the safe fallback.
-
-### Optional Docker-only check
-
-If you want to prepare/test Docker before starting Wazuh, double-click:
+Diagnostics/status/login are subcommands of the same root file:
 
 ```text
-START-NEOLABS-DOCKER.cmd
+START-NEOLABS-SOC.cmd doctor
+START-NEOLABS-SOC.cmd status
+START-NEOLABS-SOC.cmd login
 ```
 
-When it reports `NEOLABS DOCKER READY`, the Docker/WSL2 layer is ready for the SOC launcher.
+### Linux / Ubuntu
 
-Do not begin investigation until the SOC launcher reaches:
+From the repository root, use:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+The launcher fixes its executable permission during setup, so subsequent runs may use:
+
+```bash
+./start-neolabs-soc.sh
+```
+
+On Ubuntu/Debian it can install missing base packages and Docker Engine + Compose v2, configure the required Wazuh indexer kernel setting, prepare Wazuh and complete the same NeoLabs/telemetry verification path. Run the launcher as your **normal Linux user**; it invokes `sudo` itself only for the OS-level actions that require administrator privileges.
+
+Linux diagnostics/status/login:
+
+```bash
+./start-neolabs-soc.sh doctor
+./start-neolabs-soc.sh status
+./start-neolabs-soc.sh login
+```
+
+On a headless Ubuntu server the launcher cannot open a graphical browser. It prints an SSH local-port-forward command so the intern can securely open the loopback-only Wazuh dashboard from their own computer.
+
+## Do not begin until READY
 
 ```text
 SOC WORKSTATION READY
 ```
 
-READY means an actual synthetic VCC event for your server-assigned pod is searchable in Wazuh.
+READY means an actual synthetic event for the **server-assigned pod** is indexed and searchable in local Wazuh, not merely that Docker containers are running.
 
 ## Wazuh login
 
@@ -55,49 +68,28 @@ Normal local dashboard:
 https://127.0.0.1:8443
 ```
 
-Use username `admin`. The locally generated password is copied to the Windows clipboard by the launcher without being printed. Press `Ctrl+V` on the Wazuh login page, then replace the clipboard contents with non-sensitive text after signing in.
+Username is `admin`. Windows copies the locally generated password to the clipboard without printing it. Linux desktop systems use an available supported clipboard utility when present; otherwise the password stays private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
 
-## If anything looks wrong
+## Repository structure
 
-Double-click:
+Students should not execute the implementation files under `internal/` or `wazuh-stack/scripts/` during normal startup.
 
 ```text
-CHECK-NEOLABS-SOC.cmd
+START-NEOLABS-SOC.cmd       Windows entry point
+start-neolabs-soc.sh        Linux/Ubuntu entry point
+internal/windows/            Windows implementation helpers
+wazuh-stack/                 Wazuh configuration/runtime internals
+tools/                       NeoLabs client/Doctor internals
+docs/ + publications/       learning material
+templates/                   evidence/report templates
 ```
 
-or run from PowerShell in this toolkit folder:
-
-```powershell
-.\neolabs.cmd doctor
-```
-
-Doctor checks NeoLabs authentication, LIVE/REPLAY availability, raw VCC telemetry, the Wazuh rule engine, Filebeat, indexer and dashboard. It also reports the age of the newest indexed VCC event and local index/disk status.
-
-If the failure occurs before Wazuh starts and mentions Docker/WSL2, run `START-NEOLABS-DOCKER.cmd` to isolate that layer.
-
-## Manual commands
-
-Windows interns use the toolkit-local launcher, not bare `neolabs`:
-
-```powershell
-.\neolabs.cmd login
-.\neolabs.cmd status
-.\neolabs.cmd pod info
-.\neolabs.cmd connect
-.\neolabs.cmd doctor
-.\neolabs.cmd evidence
-```
-
-Windows interns do **not** need a global `pip install`, Python Scripts PATH changes or a manually entered gateway URL for the normal programme flow.
+Low-level scripts remain in the repository because the launchers need them and mentors/CI may inspect them, but they are not competing student setup choices.
 
 ## Continue with Week 1
 
-Read [`README.md`](README.md) and [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md). Use the **NeoLabs — Operation Night Watch** saved view/dashboard when available; use the **NeoLabs — Telemetry Health** view or Doctor before interpreting missing/zero-result data.
+Read [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md). Use the **NeoLabs — Operation Night Watch** view/dashboard when available and use **NeoLabs — Telemetry Health** or the launcher `doctor` action before interpreting missing/zero-result data.
 
-## Learning order
+## Security boundary
 
-Use `LEARNING_PATH.md` for the broader SOC curriculum and the material under `publications/`, `docs/`, `wazuh-stack/`, `sample-logs/`, `labs/` and `templates/` as directed by the current weekly task.
-
-## Repository boundary
-
-Keep private onboarding details, local Wazuh credentials, runtime state and internship evidence out of this public toolkit. Stop and contact a mentor if another pod, real data, credentials/private keys, unexpected infrastructure access or service instability appears.
+Never commit/share the NeoLabs Access Code, session token, Wazuh password, certificates/private keys or signed private URLs. Scope is server-controlled. Stop and contact a mentor if another pod, real personal/production data, credentials/private keys, unexpected infrastructure access or service instability appears.
