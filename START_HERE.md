@@ -13,18 +13,21 @@ For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`
 START-NEOLABS-SOC.cmd
 ```
 
-That is now the normal **single starting point**. The launcher first runs the NeoLabs Docker/WSL2 bootstrap, then handles first-run Wazuh preparation, authentication, LIVE/REPLAY connection, Wazuh health, current rule reload, assigned-pod telemetry indexing verification, freshness/retention checks, Night Watch saved-object provisioning and local dashboard login assistance.
+That is the normal **single starting point**. The launcher first runs the NeoLabs Docker/WSL2 bootstrap, then handles first-run Wazuh preparation, authentication, LIVE/REPLAY connection, Wazuh health, current rule reload, assigned-pod telemetry indexing verification, freshness/retention checks, Night Watch saved-object provisioning and local dashboard login assistance.
 
 The Docker bootstrap automatically:
 
 - verifies WSL is available and the default Linux distro is actually WSL2;
 - sets WSL2 as the default for future distro installs;
+- installs Docker Desktop through Windows Package Manager (`winget`) when Docker Desktop is missing and `winget` is available;
 - starts Docker Desktop when it is installed but stopped;
-- requires Docker Desktop's Linux container engine;
+- requires/attempts to select Docker Desktop's Linux container engine;
 - waits for the Docker daemon to become ready; and
 - proves `docker` is available inside the same default WSL2 distro used by the SOC toolkit.
 
-If Docker Desktop is not installed, the launcher opens the official Docker Desktop for Windows installation page and stops cleanly. First-time Windows WSL enablement, a required Windows restart, or enabling a specific Docker Desktop WSL distro integration can require a one-time Windows/Docker Desktop action and is not silently forced by the toolkit.
+Windows can still require a **one-time restart or first Linux-distro initialization** when WSL itself has just been enabled. Docker Desktop can also require a one-time first-run/licence/update prompt, and a non-default distro may require enabling it under **Docker Desktop > Settings > Resources > WSL Integration**. The toolkit detects these states and stops with a specific instruction rather than pretending setup succeeded.
+
+If Docker Desktop is missing and automatic `winget` installation is unavailable/fails, the helper opens Docker's official Windows installation page as the safe fallback.
 
 ### Optional Docker-only check
 
