@@ -6,12 +6,19 @@
 -->
 <group name="neolabs,vcc,synthetic_training,">
 
-  <rule id="100100" level="0">
+  <!--
+    Level 3 is intentional. Week 1 is a baseline/log-literacy exercise, so every
+    validated synthetic VCC event must reach wazuh-alerts-* and be searchable in
+    Threat Hunting even when it is normal activity rather than a higher-severity
+    security finding. More specific child rules below raise the severity.
+  -->
+  <rule id="100100" level="3">
     <decoded_as>json</decoded_as>
     <field name="synthetic">^true$</field>
     <field name="schema_version">^1\.</field>
     <field name="pod_id">^pod-[0-9]{2}$</field>
-    <description>NeoLabs VCC synthetic telemetry event.</description>
+    <description>NeoLabs VCC: Validated synthetic pod telemetry event.</description>
+    <group>vcc_baseline,</group>
     <options>no_full_log</options>
   </rule>
 
