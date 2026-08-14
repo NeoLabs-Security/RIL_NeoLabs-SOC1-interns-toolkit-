@@ -12,34 +12,40 @@ The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side **Learn + 
 - Source: [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md)
 - Branded PDF: [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf)
 
-### 2. Windows setup — IMPORTANT
+## Windows — recommended one-click start
 
-> **Windows interns: use ` .\neolabs.cmd ` — not `neolabs`.**  
-> Run every NeoLabs command from inside this toolkit folder. Do not use bare `neolabs` and do not manually add the Python Scripts folder to PATH.
+Windows interns should normally use:
 
-From the cloned toolkit folder, double-click:
+```text
+START-NEOLABS-SOC.cmd
+```
+
+Double-click it from the cloned toolkit folder. It safely orchestrates the existing toolkit controls rather than bypassing them:
+
+1. checks WSL2 and the toolkit path;
+2. runs first-time Wazuh preparation only when `wazuh-stack/.env` is missing;
+3. reuses a valid saved NeoLabs session or prompts for the assigned pod + private Access Code;
+4. runs `neolabs connect` against the current server-authorised LIVE/REPLAY learning surface;
+5. waits for the Wazuh manager, indexer, dashboard and telemetry collector to become healthy;
+6. confirms the current server-issued pod/scenario state; and
+7. opens the local Wazuh dashboard in the default browser.
+
+Existing local Wazuh secrets and configuration are preserved. The launcher does not let a student choose another telemetry target or bypass server-side pod/track scope.
+
+> **Windows interns: use ` .\neolabs.cmd ` for individual commands — not bare `neolabs`.**  
+> Run NeoLabs commands from inside this toolkit folder.
+
+### First-time/manual setup fallback
+
+If you need to prepare or troubleshoot the workstation separately, run:
 
 ```text
 setup-windows.cmd
 ```
 
-It checks that Windows can find Python. You do **not** need to run `pip install -e .`, edit PATH, or manually type the NeoLabs gateway URL.
+The setup checks WSL2, Bash, Docker, Python, OpenSSL, curl, available memory and required kernel settings. Ubuntu is **not** required; Kali, Debian and other current WSL2 Linux distributions are supported. It creates the private local Wazuh configuration/secrets when needed and prepares the stack without overwriting an existing `.env`.
 
-Then open PowerShell in this toolkit folder and test the local launcher:
-
-```powershell
-.\neolabs.cmd --help
-```
-
-The Windows launcher routes the client through the official NeoLabs gateway while keeping the underlying SOC client in this repository.
-
-### 3. Prepare Wazuh
-
-Follow [`wazuh-stack/README.md`](wazuh-stack/README.md), run its preflight/setup steps and confirm the local stack is healthy.
-
-### 4. Authenticate with your private onboarding details
-
-Use these exact Windows commands:
+Then you can use the manual flow:
 
 ```powershell
 .\neolabs.cmd login
@@ -50,18 +56,20 @@ Use these exact Windows commands:
 
 `login` asks only for **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
 
-For Week 1, the gateway deliberately returns **REPLAY** to SOC interns. `connect` downloads only your assigned pod's signed archived telemetry and feeds it into the same local Wazuh workflow. You do not need the live VCC SOC port to be publicly exposed.
+The gateway decides whether the current authorised SOC learning surface is LIVE or REPLAY. `connect` handles that mode and feeds the assigned pod's approved telemetry into the same local Wazuh workflow.
 
-### 5. Complete Operation Night Watch
+### Complete Operation Night Watch
 
 Use the Week 1 pack for the exact task and deliverables. Official submissions belong in the separate `RIL_NeoLabs-Intern-Assignments` repository, not this toolkit.
 
 ## Windows command reminder
 
 ```text
-CORRECT:   .\neolabs.cmd login
-CORRECT:   .\neolabs.cmd status
-CORRECT:   .\neolabs.cmd connect
+EASIEST:   double-click START-NEOLABS-SOC.cmd
+
+MANUAL:    .\neolabs.cmd login
+MANUAL:    .\neolabs.cmd status
+MANUAL:    .\neolabs.cmd connect
 
 DO NOT USE: neolabs login
 DO NOT USE: neolabs status
@@ -83,12 +91,13 @@ The Markdown source modules under `docs/` remain available for search, notes and
 
 ## What is preconfigured here
 
+- `START-NEOLABS-SOC.cmd` one-click Windows SOC startup;
 - local Windows `neolabs.cmd` launcher that avoids pip/PATH failures;
-- Windows readiness check;
+- Windows/WSL2 readiness and first-run setup;
 - underlying Python pod-access/authentication client for non-Windows/manual use;
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
-- automatic signed replay ingestion and live support for later windows;
+- automatic signed replay ingestion and live support for scheduled windows;
 - preflight, health, backup, restore and reset controls;
 - SecOps/Wazuh educational material plus the Week 1 Log Literacy launch attachment;
 - evidence, query-journal and incident-report templates;
@@ -98,6 +107,7 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ## Useful Windows commands
 
 ```text
+START-NEOLABS-SOC.cmd      setup if needed + authenticate + connect + health-check + open Wazuh
 .\neolabs.cmd login       authenticate with your assigned pod + private Access Code
 .\neolabs.cmd connect     load the current authorised replay/live SOC surface into Wazuh
 .\neolabs.cmd status      show current runtime, pod and scenario
@@ -109,19 +119,21 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ## Repository map
 
 ```text
-README.md                 ← you are here
-setup-windows.cmd         ← one-click Windows readiness check
-neolabs.cmd               ← use this for ALL Windows NeoLabs commands
-neolabs-local.cmd         ← gateway-aware Windows shim
-neolabs.ps1               ← PowerShell launcher implementation
-START_HERE.md             ← workstation/orientation detail
-docs/week-01/             ← current Week 1 instructions
-publications/             ← branded student PDFs
-wazuh-stack/              ← preconfigured SOC tooling
-tools/neolabs.py          ← underlying client
-templates/                ← evidence/report templates
-sample-logs/ + labs/      ← safe practice material
-research/ + references/   ← deeper reference material
+README.md                   ← you are here
+START-NEOLABS-SOC.cmd       ← recommended Windows one-click launcher
+Start-NeoLabsSOC.ps1        ← one-click orchestration implementation
+setup-windows.cmd           ← Windows/WSL2 first-run preparation
+neolabs.cmd                 ← use this for individual Windows NeoLabs commands
+neolabs-local.cmd           ← gateway-aware Windows shim
+neolabs.ps1                 ← PowerShell launcher implementation
+START_HERE.md               ← workstation/orientation detail
+docs/week-01/               ← current Week 1 instructions
+publications/               ← branded student PDFs
+wazuh-stack/                ← preconfigured SOC tooling
+tools/neolabs.py            ← underlying client
+templates/                  ← evidence/report templates
+sample-logs/ + labs/        ← safe practice material
+research/ + references/     ← deeper reference material
 ```
 
 ## Security rules
@@ -134,5 +146,3 @@ Never share private access details, session files, certificates or keys. Never a
 **Replay Gateway:** Stable Authentication + Runtime State + Replay  
 **VCC Security Lab:** Scheduled Live Target/Telemetry + Scenario  
 **Central Assignments:** Task submission + assessment
-
-Week 1 is intentionally hybrid: SOC works from pod-scoped replay while Pentest and Support use scheduled isolated live access.

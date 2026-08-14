@@ -1,6 +1,9 @@
 @echo off
 setlocal EnableExtensions
 title NeoLabs SOC Windows Setup
+set "NEOLABS_NO_PAUSE="
+if /I "%~1"=="--no-pause" set "NEOLABS_NO_PAUSE=1"
+
 echo NeoLabs SOC Windows / WSL2 setup
 echo.
 
@@ -10,7 +13,7 @@ if errorlevel 1 (
   echo Install or enable Windows Subsystem for Linux, then install any current Linux distro.
   echo Ubuntu is NOT required; Kali, Debian and other WSL2 Linux distros are supported.
   echo A separate Ubuntu Server virtual machine is not required.
-  pause
+  if not defined NEOLABS_NO_PAUSE pause
   exit /b 1
 )
 echo [OK] WSL command detected
@@ -19,7 +22,7 @@ for /f "usebackq delims=" %%I in (`wsl.exe wslpath -a "%~dp0" 2^>nul`) do set "L
 if not defined LINUX_ROOT (
   echo [ERROR] Could not translate this toolkit path into WSL.
   echo Move or clone the toolkit into your WSL Linux filesystem and run the Linux setup there.
-  pause
+  if not defined NEOLABS_NO_PAUSE pause
   exit /b 1
 )
 
@@ -31,7 +34,7 @@ if errorlevel 1 (
   echo [ERROR] Compatibility check reported a blocking issue.
   echo Resolve the failure shown above and run setup-windows.cmd again.
   echo If you saw a CRLF/pipefail message, pull the latest toolkit or follow docs\setup\WORKSTATION_COMPATIBILITY.md.
-  pause
+  if not defined NEOLABS_NO_PAUSE pause
   exit /b 1
 )
 
@@ -41,7 +44,7 @@ if errorlevel 1 (
   wsl.exe --cd "%LINUX_ROOT%" bash wazuh-stack/scripts/generate-local-secrets.sh
   if errorlevel 1 (
     echo [ERROR] Could not generate the local Wazuh configuration.
-    pause
+    if not defined NEOLABS_NO_PAUSE pause
     exit /b 1
   )
 ) else (
@@ -52,7 +55,7 @@ echo [INFO] Running stack preparation...
 wsl.exe --cd "%LINUX_ROOT%" bash wazuh-stack/scripts/prepare-stack.sh
 if errorlevel 1 (
   echo [ERROR] Stack preparation failed. Review the message above before connecting.
-  pause
+  if not defined NEOLABS_NO_PAUSE pause
   exit /b 1
 )
 
@@ -63,5 +66,5 @@ echo   .\neolabs.cmd login
 echo   .\neolabs.cmd connect
 echo   .\neolabs.cmd status
 echo.
-pause
+if not defined NEOLABS_NO_PAUSE pause
 exit /b 0

@@ -142,3 +142,15 @@ jobs:
           if violations:
               raise SystemExit("Forbidden credential, backup or generated files committed:\n" + "\n".join(violations))
           PY
+
+  windows-launcher-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate one-click Windows launcher contract
+        shell: cmd
+        run: START-NEOLABS-SOC.cmd -ValidateOnly
