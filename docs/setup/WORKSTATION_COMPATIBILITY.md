@@ -1,14 +1,8 @@
 # NeoLabs SOC L1 Workstation Compatibility
 
-For current programme/startup behaviour see [`../../PROGRAMME_CURRENT_STATE.md`](../../PROGRAMME_CURRENT_STATE.md).
+For current startup behaviour see [`../../PROGRAMME_CURRENT_STATE.md`](../../PROGRAMME_CURRENT_STATE.md).
 
 ## Supported baseline
-
-Run before/when troubleshooting setup:
-
-```bash
-bash wazuh-stack/scripts/compatibility-check.sh
-```
 
 | Requirement | Hard floor | Preferred minimum | Recommended |
 |---|---:|---:|---:|
@@ -20,67 +14,78 @@ bash wazuh-stack/scripts/compatibility-check.sh
 | Compose | v2 | v2 | current supported v2 |
 | `vm.max_map_count` | 262144 | 262144 | >=262144 |
 
-Seven GiB is accepted as the constrained Week 1 floor. Below 7 GiB is unsupported because manager/indexer/dashboard may become unstable. Python 3, OpenSSL and curl are also required by toolkit validation/access tooling.
+Seven GiB is the constrained Week 1 memory floor. The launchers can install software and configure a kernel setting; they cannot fix insufficient RAM, CPU, disk capacity, blocked virtualisation or organisation policy.
 
-## Windows 11 + WSL2 — recommended cohort path
+## Windows 11 + WSL2
 
-WSL2 is required for the Linux Wazuh stack, but Ubuntu is **not** mandatory. Kali, Ubuntu, Debian or another current WSL2 distribution is acceptable when Bash, Docker access, Python 3, OpenSSL and curl are present.
-
-Enable Docker Desktop WSL integration for the distro being used. The current Windows entry point is:
+Use only:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-The launcher/setup checks the workstation, prepares the stack only if needed and runs the Linux tooling through WSL2. Do not run the Wazuh stack directly from Git Bash/MSYS/Cygwin.
+The launcher owns the supported Windows prerequisite flow:
 
-An existing toolkit checkout on the Windows filesystem can work when WSL2/Docker can access it; for best Linux container performance/permissions, a WSL/Linux filesystem checkout is preferred. Do not move a working cohort checkout mid-assignment merely to satisfy a preference if the compatibility/startup checks already pass.
+- WSL2 detection/bootstrap;
+- an existing current WSL2 distribution, or Ubuntu installation only when no Linux distro exists;
+- Docker Desktop detection/installation/startup;
+- Linux container engine + WSL integration verification;
+- missing Linux packages inside WSL;
+- `vm.max_map_count` adjustment through the WSL root account;
+- Wazuh first-run preparation and subsequent startup.
 
-### CRLF issue
+Ubuntu is not mandatory when the intern already has a suitable Kali, Debian, Ubuntu or other current WSL2 distro. Git Bash/MSYS/Cygwin is not a supported Wazuh runtime.
 
-The repository forces LF endings for shell scripts. If an old checkout reports `pipefail\r`/invalid option errors, repair line endings or re-checkout safely. Do not run `git reset --hard` when uncommitted student evidence/work must be preserved.
+Windows can require one restart after enabling WSL or one initial launch of a newly installed Linux distro to create its Linux user. Rerun the same root CMD afterward.
 
-## Linux
+The repository forces LF endings for shell scripts. The launcher also normalises executable permissions of internal shell scripts in case the toolkit was copied through a Windows filesystem.
 
-Current Linux distributions are supported when Docker/Compose prerequisites and kernel settings pass. If required:
+## Ubuntu / Debian Linux
+
+Use:
 
 ```bash
-sudo sysctl -w vm.max_map_count=262144
+bash start-neolabs-soc.sh
 ```
 
-Make persistence changes using the OS-approved sysctl mechanism.
+Run it as the normal Linux account, **not** with `sudo` in front of the whole command. The launcher invokes administrator privileges itself only for:
 
-## macOS
+- package/repository installation;
+- Docker service/group setup;
+- `vm.max_map_count` configuration/persistence.
 
-Intel Docker Desktop can be used when memory/disk requirements are satisfied. Apple Silicon is a review-warning path because each pinned Wazuh image must support the architecture; use a supported x86_64 Linux/WSL2 workstation when the pinned image set does not.
+When Docker is absent on Ubuntu/Debian, the launcher installs Docker Engine + Compose v2 and then gives the normal user Docker access. Wazuh runtime commands themselves should then run without `sudo`.
+
+## Other Linux distributions
+
+The root Bash launcher can operate when its prerequisites already exist. Automatic Docker installation is intentionally bounded to Ubuntu/Debian. On another distribution, install Docker Engine + Compose v2 through that distribution's supported method, then rerun the same launcher.
+
+## Headless Linux server
+
+Wazuh still binds the dashboard to loopback. If the server has no desktop/browser, the launcher prints a secure SSH local-port-forward example. Do not change the dashboard binding to `0.0.0.0` merely to make remote access easier.
 
 ## Unsupported configurations
 
 - 32-bit operating systems;
-- legacy Docker Toolbox/Compose v1;
-- browser-only/mobile environments;
+- Docker Compose v1/legacy Docker Toolbox;
 - less than 7 GiB Linux/WSL2-visible memory;
-- systems where the student cannot use local Docker;
-- production/company shared infrastructure;
-- public cloud hosts exposed as a student Wazuh server;
-- Git Bash/MSYS/Cygwin as the Wazuh runtime.
+- systems where local Docker cannot be used;
+- Git Bash/MSYS/Cygwin as the Wazuh runtime;
+- public exposure of the local Wazuh administrative services;
+- production/company shared infrastructure used as an internship target/workstation without explicit approval.
 
-## Current pre-start checklist
+## Diagnostics
 
-### Windows normal path
+Windows:
 
-1. Pull the latest toolkit.
-2. Start Docker Desktop/WSL2 integration.
-3. Double-click `START-NEOLABS-SOC.cmd`.
-4. Resolve any compatibility/setup failure it reports.
-5. Do not begin Week 1 until `SOC WORKSTATION READY` confirms assigned-pod VCC telemetry is searchable.
+```text
+START-NEOLABS-SOC.cmd doctor
+```
 
-### Manual/advanced path
+Linux:
 
-1. Run compatibility check.
-2. Prepare/reuse `.env` and generated Wazuh configuration.
-3. Run preflight/start/health checks.
-4. Use the NeoLabs toolkit access client for current LIVE/REPLAY assignment.
-5. Run the telemetry pipeline verifier/Doctor before treating missing Wazuh data as an investigation result.
+```bash
+./start-neolabs-soc.sh doctor
+```
 
-A warning may be accepted only when its risk is understood/documented. A failure must be corrected before the learner relies on the workstation for assignment evidence.
+Mentors/advanced troubleshooting may still run `bash wazuh-stack/scripts/compatibility-check.sh`, but that internal check is diagnostic only. Students should not repair its failures by guessing where to add `sudo`; the platform launcher owns supported setup changes.
