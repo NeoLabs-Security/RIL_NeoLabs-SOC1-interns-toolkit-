@@ -27,8 +27,19 @@ Double-click it from the cloned toolkit folder. It safely orchestrates the exist
 3. reuses a valid saved NeoLabs session or prompts for the assigned pod + private Access Code;
 4. runs `neolabs connect` against the current server-authorised LIVE/REPLAY learning surface;
 5. waits for the Wazuh manager, indexer, dashboard and telemetry collector to become healthy;
-6. confirms the current server-issued pod/scenario state; and
-7. opens the local Wazuh dashboard in the default browser.
+6. confirms the current server-issued pod/scenario state;
+7. proves assigned-pod VCC telemetry is indexed and searchable in `wazuh-alerts-*`;
+8. securely copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
+9. opens the local Wazuh dashboard in the default browser.
+
+At the Wazuh login page use:
+
+```text
+Username: admin
+Password: press Ctrl+V (the launcher copied it to your clipboard)
+```
+
+After signing in, copy any non-sensitive text to replace the password currently held in your clipboard. On a shared or screen-recorded workstation, advanced users can start the PowerShell launcher with `-NoClipboard`; the password remains private in the local `wazuh-stack/.env` and is never committed to GitHub.
 
 Existing local Wazuh secrets and configuration are preserved. The launcher does not let a student choose another telemetry target or bypass server-side pod/track scope.
 
@@ -98,6 +109,8 @@ The Markdown source modules under `docs/` remain available for search, notes and
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
 - automatic signed replay ingestion and live support for scheduled windows;
+- end-to-end verification that assigned-pod VCC events are searchable in Wazuh before READY is displayed;
+- private local Wazuh admin credentials with clipboard-assisted Windows login;
 - preflight, health, backup, restore and reset controls;
 - SecOps/Wazuh educational material plus the Week 1 Log Literacy launch attachment;
 - evidence, query-journal and incident-report templates;
@@ -107,7 +120,7 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ## Useful Windows commands
 
 ```text
-START-NEOLABS-SOC.cmd      setup if needed + authenticate + connect + health-check + open Wazuh
+START-NEOLABS-SOC.cmd      setup if needed + authenticate + connect + verify telemetry + copy login password + open Wazuh
 .\neolabs.cmd login       authenticate with your assigned pod + private Access Code
 .\neolabs.cmd connect     load the current authorised replay/live SOC surface into Wazuh
 .\neolabs.cmd status      show current runtime, pod and scenario
