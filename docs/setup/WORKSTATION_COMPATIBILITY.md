@@ -1,93 +1,86 @@
 # NeoLabs SOC L1 Workstation Compatibility
 
+For current programme/startup behaviour see [`../../PROGRAMME_CURRENT_STATE.md`](../../PROGRAMME_CURRENT_STATE.md).
+
 ## Supported baseline
 
-The student Wazuh stack is designed for a personally controlled workstation used only for authorised NeoLabs/RIL training. Run the compatibility check before downloading images or starting the stack:
+Run before/when troubleshooting setup:
 
 ```bash
 bash wazuh-stack/scripts/compatibility-check.sh
 ```
 
-A supported workstation should provide:
-
 | Requirement | Hard floor | Preferred minimum | Recommended |
 |---|---:|---:|---:|
 | CPU architecture | 64-bit x86_64 or arm64 | 64-bit x86_64 | x86_64 |
-| CPU capacity | 4 logical cores | 4 logical cores | 6 or more logical cores |
-| System memory | 7 GiB visible to Linux/WSL2 | 8 GiB | 12–16 GiB |
-| Free disk space | 25 GiB | 25 GiB | 50 GiB |
-| Container runtime | Docker Engine/Desktop | Docker Engine/Desktop | Current supported Docker release |
-| Compose | Docker Compose v2 | Docker Compose v2 | Current supported v2 release |
-| Linux kernel setting | `vm.max_map_count=262144` | `262144` | `262144` or higher |
+| CPU capacity | 4 logical cores | 4 | 6+ |
+| Memory visible to Linux/WSL2 | 7 GiB | 8 GiB | 12–16 GiB |
+| Free disk | 25 GiB | 25 GiB | 50 GiB |
+| Container runtime | Docker Engine/Desktop | Docker Engine/Desktop | current supported release |
+| Compose | v2 | v2 | current supported v2 |
+| `vm.max_map_count` | 262144 | 262144 | >=262144 |
 
-Seven GiB is accepted for Week 1 as a constrained training configuration. Close heavy applications before starting the stack. Below 7 GiB remains unsupported because the Wazuh indexer, manager and dashboard may become unstable.
+Seven GiB is accepted as the constrained Week 1 floor. Below 7 GiB is unsupported because manager/indexer/dashboard may become unstable. Python 3, OpenSSL and curl are also required by toolkit validation/access tooling.
 
-The stack also needs Python 3, OpenSSL and curl for validation and secure enrolment.
+## Windows 11 + WSL2 — recommended cohort path
 
-## Platform guidance
+WSL2 is required for the Linux Wazuh stack, but Ubuntu is **not** mandatory. Kali, Ubuntu, Debian or another current WSL2 distribution is acceptable when Bash, Docker access, Python 3, OpenSSL and curl are present.
 
-### Ubuntu or another current Linux distribution
+Enable Docker Desktop WSL integration for the distro being used. The current Windows entry point is:
 
-This is the preferred student platform. Docker must be running, and the learner's account must be permitted to use it. Set the indexer mapping limit before startup when the compatibility check reports a failure:
+```text
+START-NEOLABS-SOC.cmd
+```
+
+The launcher/setup checks the workstation, prepares the stack only if needed and runs the Linux tooling through WSL2. Do not run the Wazuh stack directly from Git Bash/MSYS/Cygwin.
+
+An existing toolkit checkout on the Windows filesystem can work when WSL2/Docker can access it; for best Linux container performance/permissions, a WSL/Linux filesystem checkout is preferred. Do not move a working cohort checkout mid-assignment merely to satisfy a preference if the compatibility/startup checks already pass.
+
+### CRLF issue
+
+The repository forces LF endings for shell scripts. If an old checkout reports `pipefail\r`/invalid option errors, repair line endings or re-checkout safely. Do not run `git reset --hard` when uncommitted student evidence/work must be preserved.
+
+## Linux
+
+Current Linux distributions are supported when Docker/Compose prerequisites and kernel settings pass. If required:
 
 ```bash
 sudo sysctl -w vm.max_map_count=262144
 ```
 
-Make the setting persistent using the operating system's approved sysctl configuration process.
+Make persistence changes using the OS-approved sysctl mechanism.
 
-### Windows 11 with WSL2
+## macOS
 
-WSL2 is required for the Linux Wazuh stack, but **Ubuntu is not mandatory**. Ubuntu, Kali, Debian or another current WSL2 Linux distribution is acceptable when Bash, Docker access, Python 3, OpenSSL and curl are available. You do **not** need to install a separate Ubuntu Server virtual machine.
-
-Use Docker Desktop with WSL integration enabled for the distro you intend to use. Store the repository inside the Linux filesystem, such as `~/neolabs-soc1-toolkit`, rather than under `/mnt/c/`; Linux filesystem storage provides more predictable permissions and container performance.
-
-Do not run the Wazuh stack directly from Git Bash, MSYS or Cygwin. The Windows `.cmd` launcher is only an entry point; the Linux stack itself belongs inside WSL2.
-
-#### If Bash reports `invalid option name: ... pipefail`
-
-That normally means the repository was checked out with Windows CRLF line endings and Bash is reading `pipefail\r`. The repository now forces LF endings for shell scripts. For an older checkout, from the repository root run:
-
-```bash
-git config core.autocrlf false
-git reset --hard
-```
-
-If you have uncommitted work you need to keep, do not use `git reset --hard`; instead repair only the affected script:
-
-```bash
-sed -i 's/\r$//' wazuh-stack/scripts/compatibility-check.sh
-```
-
-Then run the check again with Bash.
-
-### macOS on Intel
-
-Docker Desktop is supported when the machine meets the memory and disk requirements. Allocate enough Docker Desktop memory for the indexer, manager, dashboard and telemetry collector.
-
-### macOS on Apple Silicon
-
-The scripts and learning materials work on arm64, but each pinned Wazuh container release must publish a compatible arm64 image. The compatibility check therefore reports Apple Silicon as a review warning rather than an unconditional pass. Use an x86_64 Linux or WSL2 workstation when the pinned release does not provide the required image architecture.
+Intel Docker Desktop can be used when memory/disk requirements are satisfied. Apple Silicon is a review-warning path because each pinned Wazuh image must support the architecture; use a supported x86_64 Linux/WSL2 workstation when the pinned image set does not.
 
 ## Unsupported configurations
 
-The following configurations are outside the supported student baseline:
-
 - 32-bit operating systems;
-- Docker Toolbox or legacy Compose v1;
-- production servers or shared company infrastructure;
-- public cloud hosts exposed directly to the internet;
-- systems with less than 7 GiB memory visible to Linux/WSL2;
-- systems where the learner does not control local Docker access;
-- mobile devices and browser-only coding environments.
+- legacy Docker Toolbox/Compose v1;
+- browser-only/mobile environments;
+- less than 7 GiB Linux/WSL2-visible memory;
+- systems where the student cannot use local Docker;
+- production/company shared infrastructure;
+- public cloud hosts exposed as a student Wazuh server;
+- Git Bash/MSYS/Cygwin as the Wazuh runtime.
 
-## Pre-start checklist
+## Current pre-start checklist
 
-1. Run `compatibility-check.sh` and resolve every failure.
-2. Confirm that the repository is on a local, trusted Linux/WSL2 filesystem.
-3. Run the toolkit workstation setup so `wazuh-stack/.env` and local secrets are prepared.
-4. Run `preflight.sh` and `prepare-stack.sh`.
-5. Start the stack and run `health-check.sh`.
-6. Complete VCC enrolment only with a private, operator-issued token.
+### Windows normal path
 
-A warning may be accepted only when its risk is understood and documented. A failure must be corrected before the learner starts the Wazuh stack.
+1. Pull the latest toolkit.
+2. Start Docker Desktop/WSL2 integration.
+3. Double-click `START-NEOLABS-SOC.cmd`.
+4. Resolve any compatibility/setup failure it reports.
+5. Do not begin Week 1 until `SOC WORKSTATION READY` confirms assigned-pod VCC telemetry is searchable.
+
+### Manual/advanced path
+
+1. Run compatibility check.
+2. Prepare/reuse `.env` and generated Wazuh configuration.
+3. Run preflight/start/health checks.
+4. Use the NeoLabs toolkit access client for current LIVE/REPLAY assignment.
+5. Run the telemetry pipeline verifier/Doctor before treating missing Wazuh data as an investigation result.
+
+A warning may be accepted only when its risk is understood/documented. A failure must be corrected before the learner relies on the workstation for assignment evidence.

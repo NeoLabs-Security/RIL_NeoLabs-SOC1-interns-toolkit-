@@ -1,424 +1,153 @@
-# Wazuh Dashboard Tutorial 01 — Orientation and First Alert Investigation
+# Wazuh Dashboard Tutorial 01 — Orientation and First Investigation
 
 **NeoLabs tested baseline:** Wazuh 4.14.7  
-**Tutorial version:** 0.2-draft  
-**Review date:** 1 August 2026  
+**Reconciled:** 2026-08-14  
 **Audience:** SOC Level 1 interns
 
-> Dashboard labels can change between releases. Verify the installed version under the dashboard **About** page before following a screenshot or menu path.
+Dashboard labels can vary by release. Current programme/startup behaviour is documented in `../../PROGRAMME_CURRENT_STATE.md`.
 
-## Learning objectives
+## Before opening the dashboard
 
-By the end of this tutorial, a learner should be able to:
+On Windows, normally start with:
 
-- identify the major Wazuh dashboard areas;
-- distinguish platform health, agent status, indexed alerts and raw/archive events;
-- set and verify the investigation time range;
-- open an alert and inspect the event fields that support it;
-- add filters, remove inherited filters and pivot to related activity;
-- save an investigation view without embedding private information;
-- recognise when a missing result may be a data or time-filter problem;
-- record evidence and queries in the NeoLabs templates.
-
----
-
-## 1. Before opening the dashboard
-
-From `wazuh-stack/`, check local service health:
-
-```bash
-bash scripts/health-check.sh
+```text
+START-NEOLABS-SOC.cmd
 ```
 
-Expected conditions:
+Wait for `SOC WORKSTATION READY`. That means the toolkit has already verified service health **and** that assigned-pod VCC telemetry is searchable in the local Wazuh indexer.
 
-- `wazuh.manager` is running and healthy;
-- `wazuh.indexer` is running and healthy;
-- `wazuh.dashboard` is running and healthy;
-- `vcc.telemetry.collector` is either `healthy` or clearly marked `UNENROLLED` while waiting for authorised credentials.
+If anything looks wrong:
 
-Open the local dashboard address shown by the health script. The standard NeoLabs profile binds the dashboard to:
+```text
+CHECK-NEOLABS-SOC.cmd
+```
+
+or:
+
+```powershell
+.\neolabs.cmd doctor
+```
+
+Normal dashboard URL:
 
 ```text
 https://127.0.0.1:8443
 ```
 
-The local browser may show a certificate warning while the workstation deployment uses generated training certificates. Confirm the address is the local loopback address and follow the programme’s approved browser procedure. Never bypass a certificate warning for an unknown or public host.
+Login username is `admin`; the one-click Windows launcher copies the locally generated password to the clipboard without printing it.
 
-### Record the version
+## Current NeoLabs investigation views
 
-After signing in:
+### NeoLabs — Operation Night Watch
 
-1. Open the upper-left navigation menu.
-2. Open **About** in the Wazuh section.
-3. Record the dashboard package version and revision in your query journal.
-4. Confirm it matches the cohort’s supported baseline.
+Use this preconfigured pod-scoped saved view/dashboard for Week 1 when provisioning succeeds. It focuses on:
 
-Why this matters: a tutorial written for another release may use different names, fields or menu locations.
-
----
-
-## 2. Understand the dashboard areas
-
-The Wazuh home area groups information into broad security functions.
-
-### Endpoint security
-
-Common views include:
-
-- Configuration Assessment;
-- Malware Detection;
-- File Integrity Monitoring.
-
-These views depend on the modules and telemetry configured for monitored endpoints. An empty panel may mean no findings, no compatible source, a disabled module or a time/filter issue.
-
-### Threat intelligence
-
-Common views include:
-
-- Threat Hunting;
-- MITRE ATT&CK-related views;
-- vulnerability and intelligence context where configured.
-
-Threat Hunting is useful for reviewing security events and alerts beyond a single prebuilt dashboard.
-
-### Security operations
-
-This area provides operational views such as:
-
-- events and alerts;
-- policy or compliance views;
-- configuration and platform data.
-
-### Cloud security
-
-Cloud dashboards appear when the relevant AWS, Azure, Microsoft or other integrations are configured and sending supported data.
-
-### Agents management
-
-**Agents management → Summary** shows enrolled Wazuh agents and status categories such as:
-
-- Active;
-- Disconnected;
-- Pending;
-- Never connected.
-
-Important VCC distinction: the NeoLabs pod feed is delivered through a pod-scoped telemetry collector and read by the local Wazuh manager. It is not permission to install or manage an agent inside a VCC pod. Do not interpret the absence of a pod-named Wazuh agent as proof that no pod telemetry exists.
-
-### Server management and app settings
-
-These areas can show manager settings, API connections, configuration and component health. Some actions require administrator permissions and can affect the local deployment. Interns should follow the tutorial and avoid changing settings outside an assigned lab.
-
----
-
-## 3. Alert data versus archive data
-
-Wazuh commonly uses different index patterns for different purposes.
-
-| Index pattern | Typical purpose | SOC L1 caution |
-|---|---|---|
-| `wazuh-alerts-*` | Alerts generated when Wazuh rules reach the configured alert threshold | Contains detections, not every received event |
-| `wazuh-archives-*` | All events received by the Wazuh server when archive indexing is enabled | Can be high-volume and may not be enabled in every deployment |
-| `wazuh-monitoring-*` | Agent status information | Status history is not the same as security-event data |
-| `wazuh-statistics-*` | Wazuh server performance and processing statistics | Useful for identifying dropped or delayed events |
-
-The NeoLabs starter investigation uses `wazuh-alerts-*`. Archive indexing will be enabled only after storage and privacy settings are approved and tested.
-
-### Why alerts are not complete evidence
-
-A record can be absent from `wazuh-alerts-*` because:
-
-- it did not match a rule;
-- it matched a level below the alert threshold;
-- the decoder failed;
-- the record arrived outside the selected time range;
-- the source never generated or delivered it.
-
-When archive data is available, it helps investigate events that did not become alerts. When it is unavailable, state that limitation.
-
----
-
-## 4. Start with the global time filter
-
-A wrong time filter is one of the most common reasons analysts miss evidence.
-
-1. Locate the time picker near the top-right of the relevant dashboard or Discover view.
-2. Record the displayed time zone.
-3. Choose an absolute range that includes the event’s **event time**.
-4. Expand the range slightly before and after the alert.
-5. Apply the range and confirm the result count changes as expected.
-
-### Relative versus absolute time
-
-- **Relative range:** “Last 15 minutes.” Useful for live monitoring but changes as time passes.
-- **Absolute range:** fixed start and end timestamps. Better for a report that another analyst must reproduce.
-
-For submitted investigations, record the absolute UTC range even when you first used a relative range.
-
-### Event time versus ingest time
-
-The indexed `timestamp` used by Wazuh may not be identical to a source’s own `event_time` or the collector’s `ingest_time`. Inspect all available timestamp fields before building a precise timeline.
-
----
-
-## 5. Open an alert correctly
-
-Use the assigned alert view or **Threat Hunting** view.
-
-1. Set the time range.
-2. Clear unrelated saved filters.
-3. Find the target alert.
-4. Expand the alert row or open its detail panel.
-5. Inspect the full field list.
-6. Record the rule ID, level, description, event time and affected entities.
-7. Locate the original or full-log field where available.
-
-### Fields to identify in a NeoLabs VCC event
-
-The exact path can vary after indexing, but look for the following source fields:
-
-- `schema_version`;
-- `event_id`;
-- `event_time`;
-- `ingest_time`;
-- `pod_id`;
+- assigned `pod_id`;
 - `event_type`;
-- `action`;
-- `outcome`;
-- `user` or other identity field;
+- NeoLabs user identity (`data.dstuser` in the current Wazuh mapping);
 - `source_ip`;
-- `session_id`;
+- `outcome`;
 - `correlation_id`;
-- `synthetic`.
+- Wazuh rule ID/level/description;
+- original source `event_time`.
 
-Also record Wazuh-added fields:
+### NeoLabs — Telemetry Health
 
-- rule ID and level;
-- rule groups;
-- decoder name;
-- manager or agent fields;
-- indexed timestamp;
-- source location.
+Use this saved view for collector/parser/visibility problems, especially NeoLabs rule `100150`.
 
-### Evidence question
+Saved-object provisioning is fail-soft. If these views are unavailable, use **Threat Hunting/Discover** against `wazuh-alerts-*`; do not reset Wazuh just because a saved view did not import.
 
-For each displayed field ask:
+## Alerts versus raw/archive data
 
-- Did the source generate this value?
-- Did a decoder derive it?
-- Did enrichment add it?
-- Could it be user-controlled?
-- Does it directly support the alert description?
+The current NeoLabs Week 1 workflow begins with `wazuh-alerts-*`. Normal VCC baseline events are deliberately eligible for searchable alerts so interns can see normal Night Watch activity, not only high-severity detections.
 
----
+`wazuh-archives-*` may not be enabled on every student workstation. If raw/archive data is unavailable, state that visibility limitation rather than assuming the event never existed.
 
-## 6. Add filters without losing context
+## Time is evidence
 
-Most dashboard event views let you filter by selecting a field value or adding a filter manually.
+The global time picker is one of the most common causes of false “no data” conclusions.
 
-Useful first pivots include:
+For assignment evidence:
 
-- `pod_id` for the server-issued assigned pod;
-- `user` for the affected identity;
-- `source_ip` for related activity from the same source;
-- `session_id` for actions within one application session;
-- `correlation_id` for records linked across components;
-- rule ID for repeated detections;
-- `event_type` and `outcome` for activity categories.
+1. locate the relevant event(s);
+2. choose an absolute UTC range around their **original event time**;
+3. record that range in the query journal;
+4. distinguish source `event_time` from replay/ingest/indexed timestamp.
 
-### Include and exclude filters
+Replay preserves original `event_time` and stores replay metadata separately.
 
-An include filter narrows to matching records. An exclude filter removes matching records.
+## First Week 1 investigation flow
 
-Before trusting the result count:
+1. Open **NeoLabs — Operation Night Watch** or Threat Hunting.
+2. Confirm the assigned `pod_id`. If another pod appears, stop and contact a mentor.
+3. Check the latest event freshness reported by the launcher/Doctor.
+4. Inspect any Telemetry Health warning before interpreting missing data.
+5. Set an absolute time range around the Week 1 events.
+6. Expand a record and capture `event_id`, original `event_time`, `event_type`, identity, source, outcome, session/correlation IDs and Wazuh rule metadata where available.
+7. Find normal successful authentication and an ordinary failed authentication if present.
+8. Pivot by identity → source IP → session/correlation ID to related application/API activity.
+9. Identify storage/other approved telemetry visible to the pod.
+10. Save/reuse at least three baseline filters/searches.
+11. Build a short original-event-time timeline.
+12. Record one visibility gap.
 
-1. inspect every filter pill;
-2. check whether a filter is disabled or inverted;
-3. check whether the selected data view is correct;
-4. record the filter and time range in the query journal.
+Week 1 is baseline building. “Unusual” does not automatically mean “malicious.”
 
-### Example investigation sequence
+## Useful NeoLabs rule families
 
-For a failure-to-success alert:
+Current training rules include normal baseline events plus authentication failure/repeated failure, authentication success/success-after-failures, sensitive account change, authorisation denial and telemetry-health alerts.
 
-1. Filter to the assigned `pod_id`.
-2. Filter to the affected `user`.
-3. Expand the time range to 30 minutes.
-4. Sort by event time ascending.
-5. Identify failures and any success.
-6. Remove the user filter and search the same `source_ip` for other targeted accounts.
-7. Pivot from the success to its `session_id`.
-8. Look for account, application and authorization events within that session.
-9. Search telemetry-health events for the same time window.
+Rule IDs/severity are pivots. Always inspect underlying event fields/context before disposition.
 
-Do not reproduce a denied cross-pod request. Document the denial already present in the synthetic evidence.
+## Filters and pivots
 
----
+Useful pivots include assigned pod, identity, source IP, event type, outcome, session/correlation ID and rule ID. Before trusting a result count, inspect every active filter and the current time range.
 
-## 7. WQL is not the same as every dashboard search bar
-
-Wazuh Query Language (WQL) is used in specialised Wazuh tabs and Wazuh server API filtering. Its general structure is:
+A practical sequence:
 
 ```text
-field operator value
+pod
+→ identity
+→ source_ip
+→ session_id / correlation_id
+→ related application/auth/account activity
+→ telemetry health for the same window
 ```
 
-Common operators include:
+Do not reproduce denied/cross-pod requests merely to create evidence.
 
-```text
-=   equality
-!=  inequality
->   greater than
-<   less than
-~   like/contains-style matching
-```
+## WQL/search-bar caution
 
-WQL uses:
+Wazuh Query Language, OpenSearch/Discover query syntax and UI filter pills are not interchangeable everywhere. Prefer UI field filters when following this Week 1 tutorial. If you use a query language, record exactly which view/search bar accepted it so another analyst can reproduce the result.
 
-```text
-;   AND
-,   OR
-()  grouping
-```
+## Zero results are not automatically evidence of absence
 
-Example:
+Before writing “no events found”:
 
-```text
-status=active;os.name=Ubuntu
-```
+- confirm Doctor/indexer PASS;
+- confirm latest VCC event freshness;
+- confirm the correct data view/index pattern;
+- confirm the assigned pod filter;
+- confirm absolute time range/time zone;
+- inspect Telemetry Health / rule `100150`;
+- state missing archive/source coverage if relevant.
 
-Values containing spaces must be quoted. WQL is case-sensitive.
+## Evidence capture
 
-However, **Explore → Discover** and some alert-search views use index/search syntax provided by the Wazuh dashboard and OpenSearch layer rather than WQL. Do not paste a WQL expression into every search bar and assume the same meaning. The query reference identifies which language belongs to which interface.
+A useful screenshot should show enough context to prove the claim: view/search name, time range, active filters and relevant event/rule fields. Redact local Wazuh password, NeoLabs Access Code/session, signed URLs, private keys/certificates and unrelated personal data.
 
----
+For every material conclusion, retain the event/evidence ID or reproducible search in the query journal.
 
-## 8. Save a reproducible view
+## Dashboard/agent distinction
 
-A saved search or dashboard view can preserve:
+The NeoLabs VCC pod feed is consumed as a protected telemetry stream/local file path; it is not permission to install/manage an agent inside a VCC pod. Absence of a pod-named Wazuh agent does not mean the VCC feed is absent.
 
-- selected fields;
-- sort order;
-- filters;
-- query text;
-- time range, depending on the interface.
+## When to use Doctor instead of changing settings
 
-Use a neutral name such as:
+If you suspect ingestion/indexing failure, run `CHECK-NEOLABS-SOC.cmd` / `.\neolabs.cmd doctor` before editing dashboard/indexer/manager settings. The Doctor is designed to identify whether the break is at authentication, replay/live access, raw event, rule engine, Filebeat, indexer or dashboard.
 
-```text
-LAB01-authentication-timeline-student03
-```
+Do not weaken TLS, expose indexer/API ports, disable rules broadly or delete local volumes simply to make a dashboard show data.
 
-Do not put passwords, tokens, private URLs or personal information in saved-view names.
+## Completion check
 
-In the report, still write the query and time range. A saved object can be changed or deleted and may not be available to the reviewer.
-
----
-
-## 9. Screenshot evidence
-
-Take a screenshot only when it adds visual context. A strong screenshot should show:
-
-- the relevant dashboard/view name;
-- the absolute time range;
-- active filters;
-- essential fields or chart labels;
-- enough context to understand what is being shown.
-
-Before submission:
-
-- crop unrelated browser content;
-- hide passwords and private URLs;
-- remove unrelated alerts and personal data;
-- name the file using its evidence ID;
-- record the screenshot in the evidence log;
-- preserve the underlying event or query result when available.
-
-A screenshot is not a substitute for searchable evidence.
-
----
-
-## 10. Troubleshooting missing results
-
-### No alerts in the selected period
-
-Check:
-
-1. correct time range and time zone;
-2. correct index/data view;
-3. hidden filters;
-4. Wazuh manager and indexer health;
-5. collector status and cursor movement;
-6. whether the event should have triggered a rule;
-7. decoder and rule loading;
-8. source record presence.
-
-### Fields are missing
-
-Check:
-
-- the expanded raw/full event;
-- schema version;
-- whether the JSON decoder recognised the event;
-- recent field-name changes;
-- index mappings;
-- whether the source omitted the field.
-
-### Counts seem too high
-
-Check:
-
-- duplicate ingestion;
-- grouped versus individual alerts;
-- repeated rule matches for one event;
-- the selected date histogram interval;
-- whether several pods or sources are included.
-
-### Dashboard works but the VCC feed is empty
-
-Check local collector health and enrolment state. Do not change pod identifiers or request parameters to test another pod. Escalate certificate, assignment or feed problems to the programme operator.
-
----
-
-## 11. Guided exercise
-
-Using Practice Lab 01:
-
-1. Set an absolute UTC range covering the dataset.
-2. Find the repeated authentication-failure alert.
-3. Record its rule ID and source fields.
-4. Filter by `svc-backup`.
-5. Pivot to `203.0.113.44`.
-6. Pivot to the successful session.
-7. identify the authorization denial and account change;
-8. identify the telemetry-health gap;
-9. save a view;
-10. complete the query journal and one evidence statement.
-
-### Required reflection
-
-Explain why the successful login and later account change are stronger together than either event in isolation. Then explain how the telemetry gap limits conclusions about process activity.
-
----
-
-## 12. Review questions
-
-1. What is the difference between `wazuh-alerts-*` and `wazuh-archives-*`?
-2. Why should an analyst use an absolute time range in a final report?
-3. Name five useful VCC correlation fields.
-4. Why might an event exist without an alert?
-5. What is the difference between a WQL filter and a Discover search?
-6. What should a screenshot contain to be useful evidence?
-7. Why is an empty dashboard not proof that nothing happened?
-8. Which step prevents an intern from accessing another pod’s telemetry?
-
----
-
-## Authoritative references
-
-- Wazuh, *Navigating the Wazuh dashboard*.
-- Wazuh, *Filtering data using Wazuh Query Language*.
-- Wazuh, *Wazuh indexer indices*.
-- Wazuh, *Log data analysis* and *Event logging*.
-- Wazuh, *Wazuh agent connection*.
-- `research/AUTHORITATIVE_SOURCE_REGISTER.md`.
+You can complete this tutorial when you can explain the assigned pod, current data source/time range, one normal auth sequence, one application/API pivot, the meaning of the relevant Wazuh rule, one saved/reproducible filter and one visibility limitation—without confusing replay/index time with source event time.
