@@ -4,107 +4,109 @@
 
 Build a defensible picture of **normal** VCC activity in your assigned pod. This baseline becomes the comparison point for later security incidents.
 
-## Windows — start in this order
+## Start the SOC workstation
 
-1. Pull the latest SOC toolkit.
-2. Make sure Docker Desktop is running with WSL2 integration.
-3. Double-click:
+### Windows
+
+Pull the latest toolkit and double-click:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-4. Enter your assigned pod number + private NeoLabs Access Code only if prompted.
-5. Wait for:
+### Linux / Ubuntu
+
+From the toolkit root:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+After first-run permission normalisation, later runs may use `./start-neolabs-soc.sh`.
+
+The platform launcher is responsible for first-run prerequisites and Wazuh preparation. Do not manually run individual files under `internal/` or `wazuh-stack/scripts/` as a substitute setup sequence.
+
+Enter the assigned pod number + private NeoLabs Access Code only if prompted, then wait for:
 
 ```text
 SOC WORKSTATION READY
 ```
 
-Do not start the assignment merely because the browser opens. READY means the toolkit has verified that a real synthetic event for your **server-assigned pod** reached the local Wazuh data path and is searchable in `wazuh-alerts-*`.
+READY means the toolkit verified that a real synthetic event for the **server-assigned pod** reached the local Wazuh data path and is searchable in `wazuh-alerts-*`.
 
-The launcher also reports the age of the newest indexed VCC event, checks local alert-index retention/disk health, provisions the Night Watch/Telemetry Health saved objects when supported, copies the local Wazuh `admin` password to the Windows clipboard without printing it, and opens the local dashboard.
+The launcher also reports newest-event freshness, checks local alert retention/disk state, provisions Night Watch/Telemetry Health saved objects when supported and provides dashboard access.
 
 ### Wazuh login
 
 ```text
 Dashboard: https://127.0.0.1:8443
 Username:  admin
-Password:  press Ctrl+V after the launcher reports READY
 ```
 
-After signing in, copy non-sensitive text to replace the password in the clipboard.
+On Windows the password is copied to the clipboard without being printed. On Linux desktop systems an available supported clipboard utility may be used; otherwise the locally generated password remains private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
 
-### If startup/telemetry is not healthy
+A headless Linux server cannot open a GUI browser. The launcher prints an SSH local-port-forward example so the intern can access the loopback dashboard from their own computer.
 
-Double-click:
+## If startup/telemetry is not healthy
+
+Windows:
 
 ```text
-CHECK-NEOLABS-SOC.cmd
+START-NEOLABS-SOC.cmd doctor
 ```
 
-or run:
+Linux:
 
-```powershell
-.\neolabs.cmd doctor
+```bash
+./start-neolabs-soc.sh doctor
 ```
 
-Doctor checks NeoLabs authentication → LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → indexer → dashboard. It also reports telemetry freshness and local index/disk status.
+Doctor checks NeoLabs authentication → LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → indexer → dashboard, plus telemetry freshness and local index/disk state.
 
-## Manual fallback
+Do not solve setup problems by adding `sudo` to random internal Wazuh commands. The platform launcher owns the small number of OS-level privileged operations needed during first setup.
 
-From the toolkit root on Windows:
+## LIVE / REPLAY behaviour
 
-```powershell
-.\neolabs.cmd login
-.\neolabs.cmd status
-.\neolabs.cmd pod info
-.\neolabs.cmd connect
-.\neolabs.cmd doctor
-```
-
-Windows interns do **not** need a global `pip install`, Python Scripts PATH edit or manually entered gateway URL for the normal programme path.
-
-The gateway decides whether the authorised SOC surface is LIVE or REPLAY. Live telemetry uses the pod-scoped protected channel; replay loads only validated archived telemetry for the assigned pod/scenario into the same local Wazuh workflow. Original `event_time` is preserved and replay metadata is separate.
+The server decides whether the current authorised SOC surface is LIVE or REPLAY. Live telemetry uses the protected pod-scoped channel; replay loads only validated archived telemetry for the assigned pod/scenario into the same local Wazuh workflow. Original `event_time` is preserved and replay metadata is separate.
 
 ## What to study before the task
 
 Use the material in `publications/` in this order:
 
-1. **Log Literacy for Cybersecurity Analysts** — how to read/correlate security telemetry.
-2. **SecOps Foundations / Field Guide** — evidence-first analyst workflow and escalation.
-3. **SOC L1 Analyst Handbook** — deeper reference.
-4. **Wazuh Deployment and Investigation Guide** — dashboard/query/troubleshooting reference.
-5. **SOC L1 Complete Toolkit** — long-form reference; you do not need to read it cover-to-cover before Week 1.
+1. **Log Literacy for Cybersecurity Analysts**.
+2. **SecOps Foundations / Field Guide**.
+3. **SOC L1 Analyst Handbook**.
+4. **Wazuh Deployment and Investigation Guide**.
+5. **SOC L1 Complete Toolkit** as long-form reference.
 
 ## Where to work in Wazuh
 
-Use the preconfigured **NeoLabs — Operation Night Watch** view/dashboard when available. Otherwise use Threat Hunting/Discover over `wazuh-alerts-*` and filter your server-assigned pod.
+Use **NeoLabs — Operation Night Watch** when available. Otherwise use Threat Hunting/Discover over `wazuh-alerts-*` and filter the server-assigned pod.
 
-The Night Watch view focuses on fields such as:
+Important fields include:
 
 - `data.pod_id`
 - `data.event_type`
-- `data.dstuser` (NeoLabs VCC user identity in the current Wazuh mapping)
+- `data.dstuser`
 - `data.source_ip`
 - `data.outcome`
 - `data.correlation_id`
 - `rule.id`, `rule.level`, `rule.description`
 - original `data.event_time`
 
-Use the separate **NeoLabs — Telemetry Health** view for rule `100150` and collector/parser/visibility problems. A zero-result query is not proof of absence until telemetry health/freshness is checked.
+Use **NeoLabs — Telemetry Health** for rule `100150` and collector/parser/visibility problems. A zero-result query is not proof of absence until telemetry health/freshness is checked.
 
 ## Week 1 task
 
 1. Confirm Wazuh shows only the correct assigned pod/scenario context.
-2. Record the newest VCC event freshness and note any telemetry-health warning.
-3. Identify at least one normal successful sign-in and an ordinary failed sign-in if present.
+2. Record newest VCC event freshness and any telemetry-health warning.
+3. Identify normal successful authentication and an ordinary failed authentication if present.
 4. Identify normal application/API activity and useful identity/source/outcome/session/correlation fields.
 5. Identify storage or other approved telemetry visible for your pod.
 6. Create/save at least **three reusable baseline searches/filters**.
-7. Build a short normal-activity timeline using at least two event types and original event time.
-8. Record one visibility gap: a question the current telemetry cannot answer and what additional source/field would help.
-9. Do **not** label activity malicious simply because it looks unusual. Week 1 is the reference baseline.
+7. Build a short timeline using at least two event types and original event time.
+8. Record one visibility gap and what source/field would close it.
+9. Do not label activity malicious merely because it is unusual; Week 1 is the reference baseline.
 
 ## Deliverables
 
@@ -116,37 +118,24 @@ Use the separate **NeoLabs — Telemetry Health** view for rule `100150` and col
 
 Official graded work goes to `RIL_NeoLabs-Intern-Assignments`, not this toolkit repository.
 
-## Baseline report headings
-
-- Scope and assigned pod
-- Telemetry freshness/health at investigation start
-- Sources visible in Wazuh
-- Normal authentication pattern
-- Normal application/API pattern
-- Normal storage/other telemetry
-- Three saved baseline queries
-- Visibility gaps and limitations
-- What you would compare against during a future incident
-
 ## Evidence standard
 
-- Use original event time for the incident sequence; record replay/ingestion/index time separately when relevant.
+- Use original event time for incident sequence and record replay/ingestion/index time separately when relevant.
 - Preserve request/event/correlation IDs where available.
 - Separate observed facts from interpretation.
 - Redact Access Codes, Wazuh passwords, tokens, signed URLs, certificates/private keys and personal data.
-- Never include another pod's data in your report.
+- Never include another pod's data.
 
 ## Stop conditions
 
-Stop and contact a mentor if you receive another pod's events, real personal/production information, credentials/private keys, unexpected infrastructure access or service instability.
+Stop and contact a mentor if another pod's events, real personal/production information, credentials/private keys, unexpected infrastructure access or service instability appears.
 
 ## Before submission
 
 - [ ] `SOC WORKSTATION READY` was reached.
 - [ ] Current status shows the correct pod, track and Week 1 scenario.
-- [ ] Latest VCC event freshness/telemetry health was checked.
+- [ ] Latest-event freshness/telemetry health was checked.
 - [ ] Three baseline searches/filters are recorded.
 - [ ] Timeline uses at least two event types and original event time.
-- [ ] Evidence references are reproducible.
-- [ ] Screenshots are redacted.
+- [ ] Evidence is reproducible and redacted.
 - [ ] Conclusions are supported by evidence.
