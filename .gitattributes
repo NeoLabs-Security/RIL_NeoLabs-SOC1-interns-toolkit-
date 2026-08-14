@@ -1,0 +1,3 @@
+# Keep shell scripts executable by Bash after cloning on Windows.
+*.sh text eol=lf
+*.bash text eol=lf
