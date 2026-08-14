@@ -4,59 +4,60 @@
 **Reconciled:** 2026-08-14  
 **Scope:** learner-owned workstation + authorised synthetic VCC telemetry only
 
-> Current Windows first response is `CHECK-NEOLABS-SOC.cmd` / `.\neolabs.cmd doctor`. Troubleshoot from the VCC source toward the dashboard and change one layer at a time.
+## 1. Start with the platform root launcher
 
-## 1. Current golden path
+Windows:
+
+```text
+START-NEOLABS-SOC.cmd doctor
+```
+
+Linux/Ubuntu:
+
+```bash
+./start-neolabs-soc.sh doctor
+```
+
+Do not start troubleshooting by running random files in `wazuh-stack/scripts/` or by adding `sudo` to a command that failed. The root launchers own supported prerequisite installation and privilege changes; the lower-level Wazuh scripts are intentionally runtime/validation components.
+
+## 2. Golden path
 
 ```text
 NeoLabs authentication / server assignment
 → current LIVE/REPLAY surface
 → raw assigned-pod VCC event file
 → Wazuh manager localfile input
-→ NeoLabs Wazuh rule engine
+→ NeoLabs Wazuh rules
 → Filebeat
 → Wazuh indexer (wazuh-alerts-*)
 → dashboard / saved views / time filters
 ```
 
-The one-click launcher will not display `SOC WORKSTATION READY` unless the assigned-pod telemetry is actually searchable in the indexer.
+`SOC WORKSTATION READY` is displayed only after assigned-pod telemetry is actually searchable in the indexer.
 
-## 2. Run Doctor first
+## 3. First-run prerequisite problems
 
 ### Windows
 
-Double-click:
+Rerun `START-NEOLABS-SOC.cmd` after resolving the exact state it reports. The launcher handles supported WSL2/Docker Desktop/bootstrap work. Legitimate one-time interruptions include a Windows restart after enabling WSL, launching a newly installed Linux distro once to create its Linux user, or resolving a Docker Desktop first-run/virtualisation/update prompt.
 
-```text
-CHECK-NEOLABS-SOC.cmd
-```
+Do not run the Wazuh stack from Git Bash/MSYS/Cygwin.
 
-or:
+### Linux / Ubuntu
 
-```powershell
-.\neolabs.cmd doctor
-```
-
-Doctor prints PASS/WARN/FAIL by stage and reports the latest indexed VCC event freshness, local index size/disk state and dashboard reachability.
-
-### Manual Linux/WSL inspection
-
-From the toolkit root:
+Run the launcher as the normal user:
 
 ```bash
-bash wazuh-stack/scripts/health-check.sh
-bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180
-bash wazuh-stack/scripts/telemetry-freshness.sh
-bash wazuh-stack/scripts/doctor.sh
+bash start-neolabs-soc.sh
 ```
 
-Record useful non-secret output in your query journal. Never post complete `.env`, Docker environment dumps, Access Codes, passwords, private keys/certificates or private signed URLs.
+Do **not** run `sudo ./start-neolabs-soc.sh`. The launcher invokes `sudo` itself only for package installation, Docker service/group setup and kernel configuration.
 
-## 3. Docker/WSL problems
+On Ubuntu/Debian the launcher can install Docker Engine + Compose v2 when missing. If it adds the user to the Docker group, it attempts to refresh that group context immediately; where the shell cannot do so, log out/in once and rerun the same root launcher.
 
-### Docker command/daemon unavailable
+## 4. Docker problems
 
-Check:
+Useful mentor/advanced checks:
 
 ```bash
 docker --version
@@ -64,140 +65,106 @@ docker compose version
 docker info
 ```
 
-On Windows, start Docker Desktop and confirm WSL integration for the distro in use. Do not expose an unauthenticated Docker TCP socket.
+On Windows, Docker must be the Linux engine and reachable from the same WSL2 distro used by the toolkit. On native Linux, the normal user must be able to run `docker info` without prefixing every Wazuh command with `sudo`.
 
-### Git Bash/MSYS/Cygwin
+Never expose an unauthenticated Docker TCP socket to solve a permissions problem.
 
-Do not run the Wazuh stack directly there. Use `START-NEOLABS-SOC.cmd`, which hands Linux work into WSL2.
+## 5. Memory, disk and indexer kernel requirement
 
-### Memory/disk
+Current workstation baseline:
 
-Current hard memory floor is 7 GiB visible to Linux/WSL2; 8 GiB preferred; 12–16 GiB recommended. Free disk hard floor is 25 GiB; 50 GiB recommended.
+- 7 GiB Linux/WSL-visible RAM hard floor;
+- 8 GiB preferred;
+- 12–16 GiB recommended;
+- 25 GiB free disk hard floor; 50 GiB recommended;
+- `vm.max_map_count >= 262144`.
 
-Check:
+The root launcher configures `vm.max_map_count` when it can. If an organisation/server policy blocks that administrator change, the host administrator must resolve the policy; do not edit Wazuh rules/Compose to bypass the indexer's requirement.
 
-```bash
-docker stats --no-stream
-docker system df
-df -h
-```
+Local indexer filesystem warnings begin at 85% and become critical at 92%. Preserve required evidence before any mentor-approved cleanup; do not delete Wazuh volumes merely to clear a warning.
 
-The toolkit also warns at 85% local indexer filesystem use and treats 92% as critical. Do not delete Wazuh volumes just to silence a disk warning without preserving required assignment evidence/backup.
+## 6. Local Wazuh configuration
 
-### `vm.max_map_count`
+The launchers generate `wazuh-stack/.env` only when it is absent and preserve an existing file. Do not regenerate local secrets because the repository was updated.
 
-Check:
-
-```bash
-cat /proc/sys/vm/max_map_count
-```
-
-Expected at least `262144` where the platform exposes this setting.
-
-## 4. First-run/local configuration problems
-
-The Windows launcher calls the supported setup path when `wazuh-stack/.env` is absent and preserves an existing `.env`. Do not regenerate local secrets simply because the repo was updated.
-
-Manual advanced preparation uses the scripts under `wazuh-stack/scripts/`; follow `wazuh-stack/README.md` rather than an old copied command sequence.
-
-The human Wazuh login is:
+Human dashboard login:
 
 ```text
 Username: admin
 Password source: local WAZUH_INDEXER_PASSWORD
 ```
 
-The Windows launcher copies this password to the clipboard without printing it. `WAZUH_API_PASSWORD` and `WAZUH_DASHBOARD_PASSWORD` are internal service credentials and are not the human login.
+`WAZUH_API_PASSWORD` and `WAZUH_DASHBOARD_PASSWORD` are internal service credentials, not the human login.
 
-## 5. NeoLabs authentication/runtime failures
+## 7. NeoLabs authentication/runtime failures
 
-Check:
+Use the root launcher actions:
 
-```powershell
-.\neolabs.cmd status
-.\neolabs.cmd pod info
+```text
+Windows: START-NEOLABS-SOC.cmd status
+         START-NEOLABS-SOC.cmd login
+
+Linux:   ./start-neolabs-soc.sh status
+         ./start-neolabs-soc.sh login
 ```
 
-If the saved session is expired/rejected, run `.\neolabs.cmd login` with the assigned pod + private Access Code. The pod supplied at login is only a confirmation value; server assignment remains authoritative.
+The pod entered during login is confirmation only; server assignment remains authoritative. Do not edit runtime state or a base URL to reach another pod.
 
-Do not edit runtime files to reach another pod and do not manually replace the normal gateway URL using an old onboarding message.
+## 8. Replay/live telemetry not arriving
 
-## 6. Replay/live telemetry not arriving
+Run Doctor, then verify the server state is an authorised SOC surface, raw telemetry contains synthetic assigned-pod records, replay validation did not reject pod/scenario fields, live enrolment is current when LIVE, and internet/TLS connectivity is available.
 
-Run Doctor. Then verify:
+Replay preserves original `event_time`; replay time is not the incident sequence.
 
-- server state is a valid SOC surface (`LIVE`, `REPLAY`, applicable cloud/endpoint state);
-- raw telemetry contains synthetic records for the assigned pod;
-- replay pack validation did not reject pod/scenario/event fields;
-- in LIVE mode, the protected collector/enrolment state is current;
-- internet/TLS connectivity is available.
-
-Replay preserves original `event_time`. Do not treat replay time as the incident timeline.
-
-## 7. Raw events exist but Wazuh has no alerts
+## 9. Raw events exist but Wazuh has no alerts
 
 The manager must monitor `/var/ossec/logs/vcc/vcc-events.ndjson` as JSON and load `config/rules/neolabs_vcc_rules.xml`.
 
-The normal startup path restarts the manager after asserting the stack so the current NeoLabs rules are loaded after `git pull`.
+Normal startup restarts the manager after asserting the stack so current rules are loaded after `git pull`. The telemetry verifier uses `wazuh-logtest` as part of the rule-engine proof.
 
-Use `wazuh-logtest` through the verifier/Doctor before editing decoders/rules. The NeoLabs base VCC rule is intentionally searchable so normal Week 1 baseline events can reach `wazuh-alerts-*`.
+Do not broadly raise rule levels simply to make a dashboard busy.
 
-Do not change rule levels broadly merely to make a dashboard look busy.
+## 10. Filebeat/indexer problems
 
-## 8. Filebeat/indexer problems
+If raw events/rule matching works but `wazuh-alerts-*` remains empty, Doctor separates Filebeat and indexer checks. Verify indexer health before changing mappings/policies. NeoLabs retention is deliberately scoped to local `wazuh-alerts-*` and does not force-overwrite unrelated policies.
 
-Symptoms include raw events/rule matches but no `wazuh-alerts-*` documents, dashboard index errors or indexer health failures.
-
-Check Doctor and service logs. Verify the indexer is healthy before changing mappings/policies. Local retention is deliberately scoped to `wazuh-alerts-*`; unrelated ISM policies are not force-overridden.
-
-If the disk is near watermarks, preserve/submit required evidence first, then follow mentor-approved local cleanup/retention guidance rather than deleting volumes blindly.
-
-## 9. Dashboard opens but data looks empty
+## 11. Dashboard opens but looks empty
 
 Before concluding “no events”:
 
 1. confirm Doctor/indexer PASS;
-2. check `Last VCC event indexed` freshness;
-3. confirm the assigned `pod_id` filter;
-4. use `wazuh-alerts-*` / Threat Hunting or the **NeoLabs — Operation Night Watch** view;
-5. set an appropriate/absolute UTC time range around the source event times;
-6. inspect the **NeoLabs — Telemetry Health** view/rule `100150` for collection/parser/visibility issues.
+2. check latest indexed VCC event freshness;
+3. confirm assigned `pod_id` filter;
+4. use `wazuh-alerts-*`, Threat Hunting or **NeoLabs — Operation Night Watch**;
+5. set a correct absolute UTC range around original event times;
+6. inspect **NeoLabs — Telemetry Health** / rule `100150`.
 
-A zero-result query is evidence only after source health and time/filter assumptions are verified.
+A zero-result query is useful evidence only after source health and time/filter assumptions are verified.
 
-## 10. Saved Night Watch/Telemetry Health views missing
+## 12. Saved Night Watch/Telemetry Health views missing
 
-Saved-object provisioning is fail-soft. The telemetry/indexer can be healthy even if the dashboard API rejects an import on a particular local version/state.
+Saved-object provisioning is fail-soft. Healthy telemetry/indexing does not depend on the saved view import. Continue through Threat Hunting and report the view/import problem; do not reset Wazuh data merely because a saved object is absent.
 
-Run Doctor and continue through Threat Hunting if needed. Do not reset the Wazuh data/indexer merely because a saved view is absent.
+## 13. Safe bounded repair
 
-## 11. Safe bounded repair
+The root startup path permits one bounded local telemetry repair. It may reassert local services and, in replay mode, refetch the authorised replay state. It does not reset VCC server state, switch pods, delete Wazuh volumes or fetch another student's data.
 
-The one-click launcher/repair tooling may reassert local services and, in replay mode, refetch authorised replay state once. It does **not** reset the VCC server, switch pods, delete Wazuh volumes or fetch another student's data.
+If searchability still cannot be proven, stop relying on that workstation for assignment conclusions and send redacted Doctor output to the mentor.
 
-If one bounded repair still cannot prove assigned-pod telemetry is searchable, stop relying on that workstation for assignment conclusions and send the Doctor output (redacted) to the mentor.
+## 14. Headless Linux dashboard access
 
-## 12. Dashboard certificate/browser warning
+The dashboard remains loopback-only. A headless server launcher prints an SSH local-forward example. Use that secure tunnel from the intern's own computer instead of changing the dashboard binding to a public address.
 
-The local dashboard uses local TLS. Verify you are opening the expected loopback URL (`https://127.0.0.1:8443` by default) from your own workstation. Never work around a certificate warning by exposing the dashboard on a public interface.
+## 15. Advanced internal commands
 
-## 13. Backups/resets
+Mentors may inspect `wazuh-stack/scripts/` directly for targeted diagnosis, backup/restore or CI rehearsal. These are not student setup steps. `reset.sh --confirm-destroy-local-data` is destructive local recovery and is never a normal startup fix.
 
-Use the documented backup/verify/restore scripts before destructive local changes. `reset.sh --confirm-destroy-local-data` destroys local Wazuh state; it is not normal troubleshooting. Removing local VCC credential files does not by itself revoke server-side assignment/credentials.
+## 16. Evidence to send a mentor
 
-## 14. Evidence to send a mentor
+Useful redacted evidence includes Doctor PASS/WARN/FAIL lines, current assigned pod/scenario/runtime state without credentials, latest event freshness, `docker compose ps` status, small relevant logs and event/rule IDs/screenshots.
 
-Useful redacted evidence:
+Never send `.env`, admin password, Access Code, session token, private key/certificate contents, signed private URLs or another pod's data.
 
-- Doctor PASS/WARN/FAIL lines;
-- current assigned pod/scenario/runtime state without Access Code/token;
-- latest event freshness;
-- `docker compose ps` status;
-- small relevant service-log excerpts;
-- event/rule IDs or a screenshot showing the failing dashboard stage.
+## 17. Stop conditions
 
-Never send `.env`, copied admin password, Access Code, session token, private key/certificate contents or another pod's data.
-
-## 15. Stop conditions
-
-Stop and escalate on cross-pod events/access, real personal/production data, exposed credentials/private keys, unexpected infrastructure access, external-target traffic or service instability. Do not weaken isolation/security controls to make a troubleshooting check pass.
+Stop/escalate on cross-pod events/access, real personal/production data, exposed credentials/private keys, unexpected infrastructure access, external-target traffic or service instability. Do not weaken isolation/security controls to make a troubleshooting check pass.
