@@ -203,6 +203,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate Docker + WSL2 bootstrap contract
+        shell: cmd
+        run: SETUP-DOCKER-WSL2.cmd -ValidateOnly
+
       - name: Validate one-click Windows launcher contract
         shell: cmd
         run: START-NEOLABS-SOC.cmd -ValidateOnly
