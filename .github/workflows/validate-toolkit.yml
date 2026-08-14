@@ -41,6 +41,43 @@ jobs:
             bash -n "$file"
           done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
 
+      - name: Validate telemetry-to-dashboard contract
+        run: |
+          python - <<'PY'
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          rules = Path('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
+          root = ET.parse(rules).getroot()
+          base = next((r for r in root.iter('rule') if r.attrib.get('id') == '100100'), None)
+          if base is None:
+              raise SystemExit('Missing NeoLabs base rule 100100')
+          if int(base.attrib.get('level', '0')) < 3:
+              raise SystemExit('Base VCC rule must create searchable wazuh-alerts-* documents for normal baseline telemetry')
+
+          prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
+          compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
+          launcher = Path('Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
+          verifier = Path('wazuh-stack/scripts/verify-telemetry-pipeline.sh').read_text(encoding='utf-8')
+          repair = Path('wazuh-stack/scripts/repair-telemetry-pipeline.sh').read_text(encoding='utf-8')
+
+          required = {
+              'manager JSON localfile input': '/var/ossec/logs/vcc/vcc-events.ndjson' in prepare,
+              'shared telemetry volume': 'vcc_telemetry:/var/ossec/logs/vcc' in compose,
+              'custom rule mount': 'neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro' in compose,
+              'index verification': 'wazuh-alerts-*/_search' in verifier,
+              'pod field verification': 'data.pod_id' in verifier,
+              'rule-engine verification': 'wazuh-logtest' in verifier,
+              'bounded local repair': 'replayed-objects.json' in repair,
+              'launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in launcher,
+              'launcher has repair fallback': 'repair-telemetry-pipeline.sh' in launcher,
+          }
+          missing = [name for name, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit('Telemetry contract incomplete: ' + ', '.join(missing))
+          PY
+
       - name: Test Linux workstation compatibility profile
         env:
           SOC_MIN_MEMORY_GIB: "1"
