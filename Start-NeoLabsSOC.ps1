@@ -19,6 +19,13 @@ function Require-File([string]$RelativePath) {
     return $path
 }
 
+function Test-DockerFromWsl {
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if (-not $wsl) { return $false }
+    & wsl.exe bash -lc 'docker info >/dev/null 2>&1' *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Get-WazuhAdminPassword([string]$LinuxRoot) {
     $password = (& wsl.exe --cd $LinuxRoot bash -lc 'source wazuh-stack/.env >/dev/null 2>&1; printf "%s" "${WAZUH_INDEXER_PASSWORD:-}"' 2>$null | Select-Object -First 1)
     if (-not $password) { throw 'Could not read the local Wazuh admin password from wazuh-stack/.env.' }
@@ -41,6 +48,7 @@ function Copy-SecretToClipboard([string]$Secret) {
 }
 
 $setupCmd = Require-File 'setup-windows.cmd'
+$dockerBootstrapCmd = Require-File 'SETUP-DOCKER-WSL2.cmd'
 $neoLabsCmd = Require-File 'neolabs.cmd'
 $healthScript = Require-File 'wazuh-stack\scripts\health-check.sh'
 $telemetryVerifyScript = Require-File 'wazuh-stack\scripts\verify-telemetry-pipeline.sh'
@@ -50,7 +58,7 @@ $doctorCmd = Require-File 'CHECK-NEOLABS-SOC.cmd'
 
 if ($ValidateOnly) {
     Write-Host '[OK] One-click SOC launcher contract is valid.'
-    Write-Host '[OK] Setup, NeoLabs CLI, Wazuh health, telemetry verification, freshness, bounded repair, doctor and secure clipboard login support are present.'
+    Write-Host '[OK] Docker/WSL2 bootstrap, setup, NeoLabs CLI, Wazuh health, telemetry verification, freshness, bounded repair, doctor and secure clipboard login support are present.'
     exit 0
 }
 
@@ -60,9 +68,18 @@ Write-Host '       NeoLabs SOC Level 1 - Start Desk' -ForegroundColor Cyan
 Write-Host '==============================================' -ForegroundColor DarkCyan
 Write-Host ''
 
+if (-not (Test-DockerFromWsl)) {
+    Write-Step 'Docker Desktop / WSL2 is not ready. Running the NeoLabs Windows bootstrap...'
+    & $dockerBootstrapCmd
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Docker Desktop / WSL2 bootstrap did not complete. Resolve the message above, then run START-NEOLABS-SOC.cmd again.'
+    }
+}
+Write-Host '[OK] Docker Desktop is running and available from WSL2.' -ForegroundColor Green
+
 $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 if (-not $wsl) {
-    throw 'WSL2 is required. Enable Windows Subsystem for Linux, install any current WSL2 distro, and enable Docker Desktop WSL integration.'
+    throw 'WSL2 is required. Run SETUP-DOCKER-WSL2.cmd and complete any restart/first-run step it reports.'
 }
 
 Write-Step 'Checking the Windows/WSL2 workstation...'
