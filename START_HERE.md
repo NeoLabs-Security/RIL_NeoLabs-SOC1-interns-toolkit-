@@ -4,9 +4,9 @@ Welcome to the **NeoLabs × RIL SOC Level 1 Intern Toolkit**. Official graded su
 
 For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md).
 
-## Choose your operating system
+## Choose your platform
 
-### Windows
+### Physical Windows 10/11 workstation
 
 Pull the latest toolkit, then double-click:
 
@@ -14,7 +14,9 @@ Pull the latest toolkit, then double-click:
 START-NEOLABS-SOC.cmd
 ```
 
-This is the only normal Windows entry point. It owns WSL2/Docker Desktop setup, first-run Linux prerequisites, the required Wazuh indexer kernel setting, first-run Wazuh preparation, NeoLabs authentication, LIVE/REPLAY connection, Wazuh health, telemetry-to-index verification, freshness/retention checks, saved Night Watch views and dashboard startup.
+This is the only normal Windows entry point. It first checks that the intern is on a supported physical Windows workstation. If it detects Windows Server or a Windows virtual machine/VPS guest, it stops before WSL/Docker setup and directs the intern to use an Ubuntu/Debian VPS instead.
+
+On supported Windows it owns WSL2/Docker Desktop setup, first-run Linux prerequisites, the required Wazuh indexer kernel setting, first-run Wazuh preparation, NeoLabs authentication, LIVE/REPLAY connection, Wazuh health, telemetry-to-index verification, freshness/retention checks, saved Night Watch views and dashboard startup.
 
 If Windows has just enabled WSL or installed a Linux distribution, Windows may require a restart and/or one first launch of the Linux distro to create its Linux user. Rerun the same CMD afterward; do not start picking individual setup scripts.
 
@@ -26,7 +28,7 @@ START-NEOLABS-SOC.cmd status
 START-NEOLABS-SOC.cmd login
 ```
 
-### Linux / Ubuntu
+### Linux / Ubuntu workstation
 
 From the repository root, use:
 
@@ -50,7 +52,25 @@ Linux diagnostics/status/login:
 ./start-neolabs-soc.sh login
 ```
 
-On a headless Ubuntu server the launcher cannot open a graphical browser. It prints an SSH local-port-forward command so the intern can securely open the loopback-only Wazuh dashboard from their own computer.
+### VPS / remote server
+
+If you are using a VPS or remote server for the SOC workstation, the programme requires **Ubuntu or Debian Linux**. Do not choose Windows Server and do not use a Windows VM/VPS guest for the SOC workstation.
+
+Recommended VPS operating systems:
+
+```text
+Ubuntu 24.04 LTS
+Ubuntu 22.04 LTS
+Current Debian release
+```
+
+Then use:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+This uses Docker Engine directly and avoids the WSL2/nested-virtualisation dependency. On a headless server, the launcher prints an SSH local-port-forward command so the intern can securely open the loopback-only Wazuh dashboard from their own computer.
 
 ## Do not begin until READY
 
@@ -75,8 +95,8 @@ Username is `admin`. Windows copies the locally generated password to the clipbo
 Students should not execute the implementation files under `internal/` or `wazuh-stack/scripts/` during normal startup.
 
 ```text
-START-NEOLABS-SOC.cmd       Windows entry point
-start-neolabs-soc.sh        Linux/Ubuntu entry point
+START-NEOLABS-SOC.cmd       physical Windows 10/11 entry point
+start-neolabs-soc.sh        Linux/Ubuntu/VPS entry point
 internal/windows/            Windows implementation helpers
 wazuh-stack/                 Wazuh configuration/runtime internals
 tools/                       NeoLabs client/Doctor internals
