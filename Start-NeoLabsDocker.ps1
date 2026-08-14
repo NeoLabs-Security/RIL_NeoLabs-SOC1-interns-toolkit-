@@ -14,6 +14,7 @@ function Write-Step([string]$Message) {
 function Find-DockerDesktopExecutable {
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\Docker Desktop.exe'),
         (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')
     )
     foreach ($candidate in $candidates) {
@@ -29,6 +30,7 @@ function Find-DockerCliExecutable {
     if ($command -and $command.Source) { return $command.Source }
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\resources\bin\docker.exe'),
         (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe')
     )
     foreach ($candidate in $candidates) {
@@ -69,9 +71,22 @@ function Test-DockerDesktopCli {
     } catch { return $false }
 }
 
+function Install-DockerDesktopWithWinget {
+    $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+    if (-not $winget) { return $false }
+
+    Write-Step 'Docker Desktop is not installed. Installing the official Docker Desktop package with Windows Package Manager...'
+    & winget.exe install --exact --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements --silent
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    # Give Windows a moment to register the per-user/all-users installation paths.
+    Start-Sleep -Seconds 3
+    return $true
+}
+
 if ($ValidateOnly) {
     Write-Host '[OK] NeoLabs Docker/WSL2 bootstrap contract is valid.'
-    Write-Host '[OK] It checks WSL2, starts Docker Desktop, requires Linux containers, waits for the daemon and verifies Docker inside the default WSL2 distro.'
+    Write-Host '[OK] It checks WSL2, can auto-install Docker Desktop through winget, starts Docker Desktop, requires Linux containers, waits for the daemon and verifies Docker inside the default WSL2 distro.'
     return
 }
 
@@ -105,7 +120,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $defaultDistro = Get-DefaultWslDistribution
 if (-not $defaultDistro) {
-    throw 'No default WSL Linux distribution is available. Install or select a current WSL2 distro (Kali, Ubuntu, Debian, etc.), then retry.'
+    throw 'No default WSL Linux distribution is available. Install or select a current WSL2 distro (Kali, Ubuntu, Debian, etc.), launch it once to complete its Linux user setup, then retry.'
 }
 if ($defaultDistro.Version -ne 2) {
     throw "The default WSL distribution '$($defaultDistro.Name)' is still WSL1. Convert it once with: wsl --set-version `"$($defaultDistro.Name)`" 2"
@@ -121,8 +136,18 @@ $linuxRoot = $linuxRoot.Trim()
 $script:DockerCli = Find-DockerCliExecutable
 $desktopExe = Find-DockerDesktopExecutable
 if (-not $script:DockerCli -and -not $desktopExe) {
-    try { Start-Process 'https://docs.docker.com/desktop/setup/install/windows-install/' } catch { }
-    throw 'Docker Desktop is not installed. The official Docker Desktop for Windows installation page has been opened. Install Docker Desktop with the WSL 2 backend, then rerun START-NEOLABS-SOC.cmd.'
+    $installed = Install-DockerDesktopWithWinget
+    if (-not $installed) {
+        try { Start-Process 'https://docs.docker.com/desktop/setup/install/windows-install/' } catch { }
+        throw 'Docker Desktop is not installed and automatic installation through winget was unavailable or failed. The official Docker Desktop installation page has been opened. Install Docker Desktop for Windows with the WSL 2 backend, then rerun START-NEOLABS-SOC.cmd.'
+    }
+
+    $script:DockerCli = Find-DockerCliExecutable
+    $desktopExe = Find-DockerDesktopExecutable
+    if (-not $script:DockerCli -and -not $desktopExe) {
+        throw 'Docker Desktop installation completed, but Windows has not exposed the Docker Desktop executable/CLI yet. Sign out/restart Windows if requested by the installer, then rerun START-NEOLABS-SOC.cmd.'
+    }
+    Write-Host '[OK] Docker Desktop installed through winget.' -ForegroundColor Green
 }
 
 Write-Step 'Starting Docker Desktop if needed...'
@@ -144,7 +169,7 @@ if (-not $osType) {
     }
 }
 
-# Re-resolve the CLI after Desktop starts in case installation PATH registration was not visible initially.
+# Re-resolve the CLI after Desktop starts/installs in case PATH registration was not visible initially.
 if (-not $script:DockerCli) { $script:DockerCli = Find-DockerCliExecutable }
 if (-not $script:DockerCli) {
     throw 'Docker Desktop started, but the Docker CLI could not be found. Repair/reinstall Docker Desktop so its resources\bin\docker.exe is present, then retry.'
@@ -159,7 +184,7 @@ do {
 } while ((Get-Date) -lt $deadline)
 
 if (-not $osType) {
-    throw 'Docker Desktop did not become ready before the timeout. Open Docker Desktop once, resolve any licence/update/virtualisation prompt, then retry.'
+    throw 'Docker Desktop did not become ready before the timeout. Open Docker Desktop once, resolve any licence/update/virtualisation/first-run prompt, then retry.'
 }
 
 if ($osType -eq 'windows') {
