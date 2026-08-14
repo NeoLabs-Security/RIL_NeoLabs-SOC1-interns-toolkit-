@@ -1,6 +1,7 @@
 param(
     [switch]$ValidateOnly,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$NoClipboard
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,38 @@ function Require-File([string]$RelativePath) {
     return $path
 }
 
+function Get-WazuhAdminPassword([string]$LinuxRoot) {
+    # The dashboard human login uses the locally generated OpenSearch/Wazuh
+    # `admin` password. Read it into memory without ever writing it to stdout.
+    $password = (& wsl.exe --cd $LinuxRoot bash -lc 'source wazuh-stack/.env >/dev/null 2>&1; printf "%s" "${WAZUH_INDEXER_PASSWORD:-}"' 2>$null | Select-Object -First 1)
+    if (-not $password) {
+        throw 'Could not read the local Wazuh admin password from wazuh-stack/.env.'
+    }
+    $password = $password.Trim()
+    if ($password -notmatch '^[0-9a-fA-F]{48}$') {
+        throw 'The local Wazuh admin password has an unexpected format. Run the normal setup/repair path rather than exposing or regenerating credentials manually.'
+    }
+    return $password
+}
+
+function Copy-SecretToClipboard([string]$Secret) {
+    $setClipboard = Get-Command Set-Clipboard -ErrorAction SilentlyContinue
+    if ($setClipboard) {
+        Set-Clipboard -Value $Secret
+        return
+    }
+
+    $clip = Get-Command clip.exe -ErrorAction SilentlyContinue
+    if ($clip) {
+        $Secret | & clip.exe
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+
+    throw 'Windows clipboard support is unavailable on this workstation.'
+}
+
 $setupCmd = Require-File 'setup-windows.cmd'
 $neoLabsCmd = Require-File 'neolabs.cmd'
 $healthScript = Require-File 'wazuh-stack\scripts\health-check.sh'
@@ -26,7 +59,7 @@ $telemetryRepairScript = Require-File 'wazuh-stack\scripts\repair-telemetry-pipe
 
 if ($ValidateOnly) {
     Write-Host '[OK] One-click SOC launcher contract is valid.'
-    Write-Host '[OK] Setup, NeoLabs CLI, Wazuh health, telemetry verification and bounded repair scripts are present.'
+    Write-Host '[OK] Setup, NeoLabs CLI, Wazuh health, telemetry verification, bounded repair and secure clipboard login support are present.'
     exit 0
 }
 
@@ -123,9 +156,32 @@ if (-not $dashboardPort -or $dashboardPort.Trim() -notmatch '^\d{2,5}$') {
 }
 $dashboardUrl = "https://127.0.0.1:$dashboardPort"
 
+$credentialCopied = $false
+if (-not $NoClipboard) {
+    try {
+        $adminPassword = Get-WazuhAdminPassword $linuxRoot
+        Copy-SecretToClipboard $adminPassword
+        $credentialCopied = $true
+        # Remove the plaintext variable as soon as the clipboard operation has completed.
+        $adminPassword = $null
+        Remove-Variable adminPassword -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "[WARN] Wazuh is ready, but the admin password could not be copied to the Windows clipboard: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ''
 Write-Host 'SOC WORKSTATION READY' -ForegroundColor Green
 Write-Host "Dashboard: $dashboardUrl"
+Write-Host 'Username:  admin'
+if ($credentialCopied) {
+    Write-Host 'Password:  copied to your Windows clipboard - press Ctrl+V on the Wazuh login page.' -ForegroundColor Green
+    Write-Host 'Security:  after signing in, copy any non-sensitive text to replace the password in your clipboard.' -ForegroundColor DarkYellow
+} elseif ($NoClipboard) {
+    Write-Host 'Password:  clipboard copy was disabled with -NoClipboard.' -ForegroundColor Yellow
+} else {
+    Write-Host 'Password:  not printed. It remains stored privately in wazuh-stack/.env as WAZUH_INDEXER_PASSWORD.' -ForegroundColor Yellow
+}
 Write-Host 'Verified: assigned-pod VCC telemetry is indexed and searchable in Wazuh.' -ForegroundColor Green
 Write-Host 'Your pod and scenario scope remain server-controlled by NeoLabs.'
 Write-Host ''
