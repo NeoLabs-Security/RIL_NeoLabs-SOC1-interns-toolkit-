@@ -2,51 +2,40 @@
 
 ## Purpose
 
-This directory provides the local Wazuh manager, indexer and dashboard used by authorised NeoLabs SOC Level 1 interns. The stack is pinned to Wazuh `4.14.7` / Docker tag `v4.14.7` and receives only synthetic telemetry authorised for the learner's server-assigned VCC pod.
+This directory contains the local Wazuh 4.14.7 manager, indexer, dashboard, telemetry collector, rules and maintenance scripts used by authorised NeoLabs SOC Level 1 interns.
 
-For current programme/startup behaviour read [`../PROGRAMME_CURRENT_STATE.md`](../PROGRAMME_CURRENT_STATE.md). The old release-candidate/manual-enrolment workflow is no longer the normal student path.
+**This directory is an implementation/runtime directory, not the normal student start location.**
 
-## Recommended Windows path
+## Student entry points
 
-Students normally do **not** enter this directory and manually perform every setup/enrolment step. From the toolkit root:
+From the repository root:
+
+### Windows
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-The launcher prepares/reuses the stack, authenticates to NeoLabs, connects the assigned LIVE/REPLAY surface, waits for service health, reloads current NeoLabs rules, proves assigned-pod telemetry is searchable in `wazuh-alerts-*`, reports freshness/retention/disk state, provisions Night Watch/Telemetry Health saved objects where supported, copies the local `admin` password to the Windows clipboard without printing it and opens the dashboard.
+### Linux / Ubuntu
 
-If anything is wrong:
+```bash
+bash start-neolabs-soc.sh
+```
+
+The platform launcher owns prerequisite installation, kernel configuration, first-run secret/config generation, Wazuh startup, NeoLabs authentication, telemetry connection, index verification and dashboard access. Students should not assemble a startup process by directly invoking scripts in this directory.
+
+Diagnostics are also routed through the root launcher:
 
 ```text
-CHECK-NEOLABS-SOC.cmd
+Windows: START-NEOLABS-SOC.cmd doctor
+Linux:   ./start-neolabs-soc.sh doctor
 ```
 
-or:
-
-```powershell
-.\neolabs.cmd doctor
-```
-
-## Current readiness meaning
-
-`SOC WORKSTATION READY` means more than containers are running. A real synthetic event for the current server-assigned pod must be present in the local telemetry path and searchable through the Wazuh indexer. If that proof fails, the launcher makes at most one bounded local repair attempt and does not falsely report READY.
-
-## Dashboard login
-
-Normal local URL:
-
-```text
-https://127.0.0.1:8443
-```
-
-Username is `admin`. The human dashboard password is the locally generated `WAZUH_INDEXER_PASSWORD` in the private `.env`; the Windows launcher copies it to the clipboard without printing it. The internal `wazuh-wui` and `kibanaserver` service passwords are separate and are not student login credentials.
-
-## Current telemetry path
+## Internal telemetry path
 
 ```text
 VCC live/archive
-→ NeoLabs authorised LIVE/REPLAY access
+→ authorised NeoLabs LIVE/REPLAY access
 → local vcc-events.ndjson
 → Wazuh manager JSON localfile input
 → NeoLabs VCC rules
@@ -55,101 +44,91 @@ VCC live/archive
 → dashboard / Threat Hunting / saved views
 ```
 
-Replay validates `synthetic=true`, assigned `pod_id`, required event fields and scenario scope before append. Original `event_time` is preserved; replay metadata is separate.
+Replay validates `synthetic=true`, assigned `pod_id`, required fields and scenario scope before append. Original `event_time` is preserved and replay metadata remains separate.
+
+## READY contract
+
+`SOC WORKSTATION READY` means a real synthetic event for the server-assigned pod has been processed and is searchable through the local Wazuh indexer. Container health alone is insufficient. If searchability initially fails, the root launcher permits only one bounded local repair attempt before refusing READY.
+
+## Dashboard
+
+Normal local URL:
+
+```text
+https://127.0.0.1:8443
+```
+
+Human username is `admin`. The human password is the locally generated `WAZUH_INDEXER_PASSWORD` in private `.env`. Internal `wazuh-wui`/`kibanaserver` credentials are separate service credentials.
 
 ## Current NeoLabs rules
 
-`config/rules/neolabs_vcc_rules.xml` includes training rules for:
+`config/rules/neolabs_vcc_rules.xml` includes training rules for normal VCC baseline events, authentication failures/repetition, successful authentication, success after failures, sensitive account changes, protected authorisation denials and telemetry-health problems (`100150`).
 
-- normal VCC baseline events (searchable in `wazuh-alerts-*`);
-- authentication failures;
-- repeated failures by account/source;
-- successful authentication and success after failures;
-- sensitive account changes;
-- protected authorisation denials;
-- telemetry quality/availability problems (`100150`).
+The base NeoLabs VCC rule produces searchable baseline documents, which is required for Operation Night Watch. Rule matches are investigation pivots, not automatic proof of malicious activity.
 
-Starter alerts are pivots, not automatic proof of compromise.
+`start.sh` explicitly restarts the Wazuh manager after Compose assertion so updated bind-mounted NeoLabs rules are loaded after a toolkit update.
 
-Startup explicitly restarts the Wazuh manager after asserting the stack so an existing installation loads the current rule file after `git pull`.
+## Saved investigation views
 
-## Night Watch / Telemetry Health views
+Runtime provisioning attempts to create:
 
-The current local provisioning script attempts to create:
+- **NeoLabs — Operation Night Watch** — assigned-pod baseline investigation view;
+- **NeoLabs — Telemetry Health** — rule `100150` collection/parser/visibility troubleshooting view.
 
-- **NeoLabs — Operation Night Watch** — server-assigned pod baseline view with event type, identity, source, outcome, correlation/rule/original event-time fields;
-- **NeoLabs — Telemetry Health** — rule `100150` / collection-parser-visibility troubleshooting view.
-
-Saved-object provisioning is fail-soft. If a dashboard version/API rejects the import, Threat Hunting remains available and the Doctor reports the issue.
+Saved-object provisioning is fail-soft; Threat Hunting remains available if local saved-object import fails.
 
 ## Freshness and local retention
 
-- Default telemetry freshness warning: **90 minutes**.
-- Default local `wazuh-alerts-*` retention: **30 days**.
-- Disk warning: **85%**; critical: **92%**.
+- telemetry freshness warning default: **90 minutes**;
+- local `wazuh-alerts-*` retention default: **30 days**;
+- filesystem warning: **85%**;
+- critical: **92%**.
 
-Retention applies only to the intern's local alert indices. It does not delete VCC telemetry archives, approved evidence or server-side records and does not force-overwrite unrelated existing ISM policies.
+These controls affect the student's local Wazuh data only; they do not delete VCC server-side telemetry/evidence.
 
-## Workstation capacity
-
-Run:
-
-```bash
-bash wazuh-stack/scripts/compatibility-check.sh
-```
-
-Current baseline:
+## Workstation baseline
 
 | Requirement | Hard floor | Preferred | Recommended |
 |---|---:|---:|---:|
-| Linux/WSL2 visible memory | 7 GiB | 8 GiB | 12–16 GiB |
+| Linux/WSL2-visible memory | 7 GiB | 8 GiB | 12–16 GiB |
 | CPU | 4 logical cores | 4 | 6+ |
 | Free disk | 25 GiB | 25 GiB | 50 GiB |
-| Compose | v2 | v2 | current supported v2 |
+| Compose | v2 | v2 | current v2 |
 | `vm.max_map_count` | 262144 | 262144 | >=262144 |
 
-Windows uses WSL2; Ubuntu specifically is **not** required. Kali, Debian and other current WSL2 distros are acceptable when Docker/Python/OpenSSL/curl are available. Git Bash/MSYS/Cygwin are not supported as the Wazuh runtime.
+The root launchers now own the supported privilege changes required to reach these software/kernel prerequisites. `compatibility-check.sh` and `preflight.sh` deliberately remain read-only validation scripts and should not contain scattered `sudo` commands.
 
-## Manual/advanced stack operations
+## Internal/mentor operations
 
-These remain useful for troubleshooting/advanced non-Windows operation:
+The scripts below remain available for CI, recovery and advanced mentor troubleshooting, but are not student-facing setup choices:
 
-```bash
-bash scripts/compatibility-check.sh
-bash scripts/generate-local-secrets.sh
-bash scripts/prepare-stack.sh
-bash scripts/preflight.sh
-bash scripts/start.sh
-bash scripts/health-check.sh
-bash scripts/verify-telemetry-pipeline.sh --wait 180
-bash scripts/telemetry-freshness.sh
-bash scripts/doctor.sh
+```text
+scripts/compatibility-check.sh
+scripts/generate-local-secrets.sh
+scripts/prepare-stack.sh
+scripts/preflight.sh
+scripts/start.sh
+scripts/health-check.sh
+scripts/verify-telemetry-pipeline.sh
+scripts/repair-telemetry-pipeline.sh
+scripts/telemetry-freshness.sh
+scripts/doctor.sh
+scripts/backup.sh / verify-backup.sh / restore.sh
+scripts/stop.sh / reset.sh
 ```
 
-Use `scripts/backup.sh`, `verify-backup.sh`, `restore.sh`, `stop.sh` and `reset.sh` only according to their warnings. Destructive reset is local-only and must not be used as a substitute for diagnosing a normal Week 1 telemetry issue.
+Do not add `sudo` to those runtime commands simply because Docker/kernel setup failed. Correct the platform setup through the root launcher. `reset.sh` is destructive local recovery and is not normal Week 1 troubleshooting.
 
 ## Private files
 
-Never commit/share publicly:
-
-- `.env`;
-- NeoLabs Access Codes/session files;
-- VCC private keys/certificates/private signed URLs;
-- local Wazuh passwords;
-- enrolment/runtime state;
-- raw evidence containing real/private information or another pod's data;
-- generated backups.
+Never commit/share `.env`, NeoLabs Access Codes/session files, VCC private keys/certificates/private signed URLs, local Wazuh passwords, enrolment/runtime state, generated backups or another pod's evidence.
 
 ## Network/security design
 
-- Dashboard binds to loopback by default.
-- Indexer and Wazuh API are not published to the host for student use.
-- Internal Wazuh components remain on the Compose internal network.
-- Pod scope is server-managed, not selected through `POD_LABEL`/URL/query parameters.
-- The collector/replay path rejects cross-pod/non-synthetic data.
+- Dashboard binds to loopback.
+- Indexer and Wazuh API are not published for student network access.
+- Internal components remain on the Compose internal network.
+- Pod scope is server-managed.
+- Collector/replay validation rejects wrong-pod/non-synthetic data.
 
-## Troubleshooting order
-
-Prefer `CHECK-NEOLABS-SOC.cmd` / `.\neolabs.cmd doctor`. For manual review, check: NeoLabs auth/runtime → raw VCC event file → manager localfile/rules (`wazuh-logtest`) → Filebeat → indexer → dashboard/time filter → freshness/telemetry-health events.
-
-Full decision tree: [`../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md`](../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md).
+Full troubleshooting guide: [`../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md`](../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md).
