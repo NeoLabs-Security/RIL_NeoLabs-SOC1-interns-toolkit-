@@ -1,11 +1,11 @@
 $ErrorActionPreference = 'Stop'
 
-$client = Join-Path $PSScriptRoot 'tools\neolabs.py'
+$client = Join-Path $PSScriptRoot 'tools\cli.py'
 if (-not (Test-Path $client)) { throw 'NeoLabs client file is missing from this toolkit.' }
 
 # The SOC Wazuh stack is Linux-based. On Windows, prefer WSL2 for the entire
-# CLI invocation so `neolabs connect` does not accidentally fall back to Git
-# Bash/MSYS and so the same Bash/Docker environment is used for setup/startup.
+# CLI invocation so `neolabs connect` and `neolabs doctor` use the same
+# Bash/Docker environment as setup/startup.
 $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 if ($wsl) {
     try {
@@ -13,7 +13,7 @@ if ($wsl) {
         if ($linuxRoot) {
             $baseUrl = $env:NEOLABS_LAB_BASE_URL
             if (-not $baseUrl) { $baseUrl = 'https://pg1wb0sklb.execute-api.us-east-1.amazonaws.com' }
-            & wsl.exe --cd $linuxRoot env "NEOLABS_LAB_BASE_URL=$baseUrl" python3 tools/neolabs.py @args
+            & wsl.exe --cd $linuxRoot env "NEOLABS_LAB_BASE_URL=$baseUrl" python3 tools/cli.py @args
             exit $LASTEXITCODE
         }
     } catch {
@@ -21,10 +21,9 @@ if ($wsl) {
     }
 }
 
-# Login/status can still be useful on Windows without WSL2, but connect needs
-# the Linux Wazuh runtime. Keep the fallback for diagnostics and clear errors.
-if ($args.Count -gt 0 -and $args[0] -eq 'connect') {
-    throw 'SOC `connect` requires WSL2. Install/enable any WSL2 Linux distro (Ubuntu, Kali, Debian, etc.) and Docker Desktop WSL integration, then run .\setup-windows.cmd once.'
+# Commands that inspect or control the local Wazuh runtime require WSL2.
+if ($args.Count -gt 0 -and ($args[0] -eq 'connect' -or $args[0] -eq 'doctor')) {
+    throw 'SOC `connect` and `doctor` require WSL2. Install/enable any WSL2 Linux distro (Ubuntu, Kali, Debian, etc.) and Docker Desktop WSL integration, then run .\setup-windows.cmd once.'
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {
