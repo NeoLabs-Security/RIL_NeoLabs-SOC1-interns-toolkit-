@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:DockerCli = $null
 
 function Write-Step([string]$Message) {
     Write-Host "[NeoLabs Docker] $Message" -ForegroundColor Cyan
@@ -14,6 +15,21 @@ function Find-DockerDesktopExecutable {
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe'),
         (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Find-DockerCliExecutable {
+    $command = Get-Command docker.exe -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) { return $command.Source }
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'),
+        (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe')
     )
     foreach ($candidate in $candidates) {
         if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -37,16 +53,18 @@ function Get-DefaultWslDistribution {
 }
 
 function Get-DockerOsType {
+    if (-not $script:DockerCli) { return $null }
     try {
-        $value = (& docker.exe info --format '{{.OSType}}' 2>$null | Select-Object -First 1)
+        $value = (& $script:DockerCli info --format '{{.OSType}}' 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -eq 0 -and $value) { return $value.Trim().ToLowerInvariant() }
     } catch { }
     return $null
 }
 
 function Test-DockerDesktopCli {
+    if (-not $script:DockerCli) { return $false }
     try {
-        & docker.exe desktop version *> $null
+        & $script:DockerCli desktop version *> $null
         return ($LASTEXITCODE -eq 0)
     } catch { return $false }
 }
@@ -100,20 +118,20 @@ if (-not $linuxRoot) {
 }
 $linuxRoot = $linuxRoot.Trim()
 
-$dockerCommand = Get-Command docker.exe -ErrorAction SilentlyContinue
+$script:DockerCli = Find-DockerCliExecutable
 $desktopExe = Find-DockerDesktopExecutable
-if (-not $dockerCommand -and -not $desktopExe) {
+if (-not $script:DockerCli -and -not $desktopExe) {
     try { Start-Process 'https://docs.docker.com/desktop/setup/install/windows-install/' } catch { }
     throw 'Docker Desktop is not installed. The official Docker Desktop for Windows installation page has been opened. Install Docker Desktop with the WSL 2 backend, then rerun START-NEOLABS-SOC.cmd.'
 }
 
 Write-Step 'Starting Docker Desktop if needed...'
-$osType = if ($dockerCommand) { Get-DockerOsType } else { $null }
+$osType = Get-DockerOsType
 if (-not $osType) {
     $startedWithCli = $false
-    if ($dockerCommand -and (Test-DockerDesktopCli)) {
+    if ($script:DockerCli -and (Test-DockerDesktopCli)) {
         try {
-            & docker.exe desktop start --timeout $TimeoutSeconds *> $null
+            & $script:DockerCli desktop start --timeout $TimeoutSeconds *> $null
             $startedWithCli = ($LASTEXITCODE -eq 0)
         } catch { $startedWithCli = $false }
     }
@@ -124,6 +142,12 @@ if (-not $osType) {
         }
         Start-Process -FilePath $desktopExe | Out-Null
     }
+}
+
+# Re-resolve the CLI after Desktop starts in case installation PATH registration was not visible initially.
+if (-not $script:DockerCli) { $script:DockerCli = Find-DockerCliExecutable }
+if (-not $script:DockerCli) {
+    throw 'Docker Desktop started, but the Docker CLI could not be found. Repair/reinstall Docker Desktop so its resources\bin\docker.exe is present, then retry.'
 }
 
 Write-Step "Waiting up to $TimeoutSeconds seconds for the Docker Linux engine..."
@@ -143,7 +167,7 @@ if ($osType -eq 'windows') {
     $switched = $false
     if (Test-DockerDesktopCli) {
         try {
-            & docker.exe desktop engine use linux *> $null
+            & $script:DockerCli desktop engine use linux *> $null
             $switched = ($LASTEXITCODE -eq 0)
         } catch { $switched = $false }
     }
