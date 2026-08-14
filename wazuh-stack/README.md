@@ -2,306 +2,154 @@
 
 ## Purpose
 
-This directory provides a repeatable local Wazuh manager, indexer and dashboard for authorised NeoLabs SOC Level 1 training. A separate hardened collector can receive only the synthetic telemetry issued to the learner's assigned VCC pod.
+This directory provides the local Wazuh manager, indexer and dashboard used by authorised NeoLabs SOC Level 1 interns. The stack is pinned to Wazuh `4.14.7` / Docker tag `v4.14.7` and receives only synthetic telemetry authorised for the learner's server-assigned VCC pod.
 
-The baseline follows the official Wazuh single-node container topology and pins:
+For current programme/startup behaviour read [`../PROGRAMME_CURRENT_STATE.md`](../PROGRAMME_CURRENT_STATE.md). The old release-candidate/manual-enrolment workflow is no longer the normal student path.
 
-- Wazuh release `4.14.7`;
-- official Docker tag `v4.14.7`;
-- verified upstream commit `adcc5b57d2f7edfcbe6c399272dc76fbdf12b623`.
+## Recommended Windows path
 
-Changing the version requires release-note review, regenerated configuration, rule tests, Compose validation and a new recorded review date.
+Students normally do **not** enter this directory and manually perform every setup/enrolment step. From the toolkit root:
 
-## Current status
+```text
+START-NEOLABS-SOC.cmd
+```
 
-The stack is a reviewed **Version 1 release candidate** on the toolkit feature branch. The local manager, indexer, dashboard, collector, enrolment client, health checks, reset controls, backup/restore workflow, compatibility assessment, starter rules and CI tests are implemented.
+The launcher prepares/reuses the stack, authenticates to NeoLabs, connects the assigned LIVE/REPLAY surface, waits for service health, reloads current NeoLabs rules, proves assigned-pod telemetry is searchable in `wazuh-alerts-*`, reports freshness/retention/disk state, provisions Night Watch/Telemetry Health saved objects where supported, copies the local `admin` password to the Windows clipboard without printing it and opens the dashboard.
 
-The corresponding isolated VCC control-plane rehearsal passed:
+If anything is wrong:
 
-- certificate-signing request exchange;
-- single-use bootstrap-token enforcement;
-- two separate intern-to-pod assignments;
-- server-enforced pod isolation;
-- rejection of client-selected pod scope;
-- credential revocation;
-- assignment revocation.
+```text
+CHECK-NEOLABS-SOC.cmd
+```
 
-The repository also passes collector unit tests, Compose validation, secret-boundary checks and a synthetic Docker-volume backup/restore rehearsal. Automated workstation validation runs on Linux CI. WSL2 and macOS deployment profiles are documented in [`../docs/setup/WORKSTATION_COMPATIBILITY.md`](../docs/setup/WORKSTATION_COMPATIBILITY.md), but should still be checked on the actual cohort machines during controlled rollout.
+or:
 
-This branch has not been merged or deployed. Students should use it only after NeoLabs operator approval and receipt of their individual enrolment details.
+```powershell
+.\neolabs.cmd doctor
+```
 
-## Required workstation capacity
+## Current readiness meaning
 
-Run the automated assessment first:
+`SOC WORKSTATION READY` means more than containers are running. A real synthetic event for the current server-assigned pod must be present in the local telemetry path and searchable through the Wazuh indexer. If that proof fails, the launcher makes at most one bounded local repair attempt and does not falsely report READY.
+
+## Dashboard login
+
+Normal local URL:
+
+```text
+https://127.0.0.1:8443
+```
+
+Username is `admin`. The human dashboard password is the locally generated `WAZUH_INDEXER_PASSWORD` in the private `.env`; the Windows launcher copies it to the clipboard without printing it. The internal `wazuh-wui` and `kibanaserver` service passwords are separate and are not student login credentials.
+
+## Current telemetry path
+
+```text
+VCC live/archive
+→ NeoLabs authorised LIVE/REPLAY access
+→ local vcc-events.ndjson
+→ Wazuh manager JSON localfile input
+→ NeoLabs VCC rules
+→ Filebeat
+→ Wazuh indexer wazuh-alerts-*
+→ dashboard / Threat Hunting / saved views
+```
+
+Replay validates `synthetic=true`, assigned `pod_id`, required event fields and scenario scope before append. Original `event_time` is preserved; replay metadata is separate.
+
+## Current NeoLabs rules
+
+`config/rules/neolabs_vcc_rules.xml` includes training rules for:
+
+- normal VCC baseline events (searchable in `wazuh-alerts-*`);
+- authentication failures;
+- repeated failures by account/source;
+- successful authentication and success after failures;
+- sensitive account changes;
+- protected authorisation denials;
+- telemetry quality/availability problems (`100150`).
+
+Starter alerts are pivots, not automatic proof of compromise.
+
+Startup explicitly restarts the Wazuh manager after asserting the stack so an existing installation loads the current rule file after `git pull`.
+
+## Night Watch / Telemetry Health views
+
+The current local provisioning script attempts to create:
+
+- **NeoLabs — Operation Night Watch** — server-assigned pod baseline view with event type, identity, source, outcome, correlation/rule/original event-time fields;
+- **NeoLabs — Telemetry Health** — rule `100150` / collection-parser-visibility troubleshooting view.
+
+Saved-object provisioning is fail-soft. If a dashboard version/API rejects the import, Threat Hunting remains available and the Doctor reports the issue.
+
+## Freshness and local retention
+
+- Default telemetry freshness warning: **90 minutes**.
+- Default local `wazuh-alerts-*` retention: **30 days**.
+- Disk warning: **85%**; critical: **92%**.
+
+Retention applies only to the intern's local alert indices. It does not delete VCC telemetry archives, approved evidence or server-side records and does not force-overwrite unrelated existing ISM policies.
+
+## Workstation capacity
+
+Run:
+
+```bash
+bash wazuh-stack/scripts/compatibility-check.sh
+```
+
+Current baseline:
+
+| Requirement | Hard floor | Preferred | Recommended |
+|---|---:|---:|---:|
+| Linux/WSL2 visible memory | 7 GiB | 8 GiB | 12–16 GiB |
+| CPU | 4 logical cores | 4 | 6+ |
+| Free disk | 25 GiB | 25 GiB | 50 GiB |
+| Compose | v2 | v2 | current supported v2 |
+| `vm.max_map_count` | 262144 | 262144 | >=262144 |
+
+Windows uses WSL2; Ubuntu specifically is **not** required. Kali, Debian and other current WSL2 distros are acceptable when Docker/Python/OpenSSL/curl are available. Git Bash/MSYS/Cygwin are not supported as the Wazuh runtime.
+
+## Manual/advanced stack operations
+
+These remain useful for troubleshooting/advanced non-Windows operation:
 
 ```bash
 bash scripts/compatibility-check.sh
+bash scripts/generate-local-secrets.sh
+bash scripts/prepare-stack.sh
+bash scripts/preflight.sh
+bash scripts/start.sh
+bash scripts/health-check.sh
+bash scripts/verify-telemetry-pipeline.sh --wait 180
+bash scripts/telemetry-freshness.sh
+bash scripts/doctor.sh
 ```
 
-For the all-in-one Wazuh topology, plan for approximately:
+Use `scripts/backup.sh`, `verify-backup.sh`, `restore.sh`, `stop.sh` and `reset.sh` only according to their warnings. Destructive reset is local-only and must not be used as a substitute for diagnosing a normal Week 1 telemetry issue.
 
-- 4 CPU cores;
-- 8 GiB RAM minimum, with 12–16 GiB recommended;
-- 25 GiB free storage minimum, with 50 GiB recommended;
-- Docker Engine or Docker Desktop with Compose v2;
-- Linux, WSL2 or a reviewed Docker Desktop environment;
-- `vm.max_map_count` of at least `262144` where the host exposes that setting;
-- Python 3, OpenSSL and curl.
+## Private files
 
-Smaller systems may start but can become unstable or too slow for investigations.
-
-## Security design
-
-### Network exposure
-
-- The Wazuh indexer is not published to the host.
-- The Wazuh server API is not published to the host.
-- The dashboard binds to `127.0.0.1:8443` by default.
-- Wazuh components use an internal-only Compose network.
-- Only the VCC telemetry collector receives an outbound network path.
-
-### Pod isolation
-
-The learner does not choose an authorised pod by editing `POD_LABEL`, a URL or a request parameter.
-
-1. A programme operator records the intern-to-pod assignment in the VCC control plane.
-2. The operator issues a short-lived, single-use bootstrap token.
-3. The enrolment client creates a local private key and sends only a certificate signing request.
-4. The control plane consumes the token and issues a client certificate bound to the recorded assignment.
-5. Nginx verifies the client certificate for every telemetry request.
-6. The control plane derives pod scope from the active certificate and assignment.
-7. The collector rejects any event whose `pod_id` differs from the server-issued pod.
-8. Reassignment requires server-side revocation and explicit local re-enrolment.
-
-A shared pod password is intentionally not used.
-
-## Files that must remain private
-
-Never commit or send through a public channel:
+Never commit/share publicly:
 
 - `.env`;
-- bootstrap token files;
-- `secrets/vcc/client.key`;
-- issued client certificates when programme policy treats them as confidential;
-- VCC private URLs;
-- `state/enrolment.json`;
-- raw evidence containing personal information or another pod's data;
+- NeoLabs Access Codes/session files;
+- VCC private keys/certificates/private signed URLs;
+- local Wazuh passwords;
+- enrolment/runtime state;
+- raw evidence containing real/private information or another pod's data;
 - generated backups.
 
-The operator-issued enrolment CA certificate is public-key material, but it must still be delivered through an approved channel so the learner can verify that it belongs to the real VCC lab.
-
-## Setup workflow
-
-Run commands from `wazuh-stack/`.
-
-### 1. Check the workstation
-
-```bash
-bash scripts/compatibility-check.sh
-```
-
-Resolve every failure before continuing. Platform-specific guidance is available in [`../docs/setup/WORKSTATION_COMPATIBILITY.md`](../docs/setup/WORKSTATION_COMPATIBILITY.md).
-
-### 2. Generate local secrets
-
-```bash
-bash scripts/generate-local-secrets.sh
-```
-
-This creates `.env`, an installation identifier and protected local directories. Password values are not printed.
-
-### 3. Configure the enrolment endpoint
-
-The operator supplies:
-
-- the HTTPS enrolment base URL;
-- the VCC enrolment CA certificate;
-- a short-lived bootstrap token file when the intern is ready to enrol.
-
-Place the CA at:
-
-```text
-secrets/vcc/enrolment-ca.crt
-```
-
-Set the operator-provided URL in `.env`:
-
-```text
-VCC_ENROLMENT_BASE_URL=https://soc.lab.example.invalid:8443
-```
-
-Do not add a pod ID to this URL.
-
-### 4. Prepare the pinned Wazuh configuration
-
-```bash
-bash scripts/prepare-stack.sh
-```
-
-The script:
-
-- clones the official `wazuh/wazuh-docker` repository into ignored local state;
-- checks out the exact pinned tag;
-- verifies the full expected commit SHA;
-- copies the official single-node configuration;
-- generates local indexer password hashes;
-- generates the Wazuh TLS certificate set;
-- adds the NeoLabs VCC NDJSON input configuration.
-
-No Wazuh service is started by this step.
-
-### 5. Run preflight validation
-
-```bash
-bash scripts/preflight.sh
-```
-
-Preflight checks Docker, Compose, local file permissions, placeholder passwords, pinned versions, dashboard binding, memory guidance and `vm.max_map_count` where available.
-
-### 6. Enrol to the assigned VCC pod
-
-Protect the operator-issued token file:
-
-```bash
-chmod 600 /path/to/bootstrap-token.txt
-```
-
-Then run:
-
-```bash
-bash scripts/enrol-vcc.sh --token-file /path/to/bootstrap-token.txt
-```
-
-The client does not send a learner-selected pod. It stores the server-issued pod and credential metadata locally without printing private key or certificate contents.
-
-### 7. Start and validate the stack
-
-```bash
-bash scripts/start.sh
-```
-
-The startup script validates the generated files, checks the Compose model, builds the collector, starts services and waits for health checks.
-
-View current health later with:
-
-```bash
-bash scripts/health-check.sh
-```
-
-The collector is considered healthy while waiting for enrolment, but Wazuh will not receive VCC telemetry until valid credentials and an endpoint exist.
-
-### 8. Back up local Wazuh data
-
-```bash
-bash scripts/backup.sh
-```
-
-The stack is stopped briefly for a consistent archive and restarted afterward. Backups exclude `.env`, VCC tokens, private keys, certificates and private endpoints. Verify a backup with:
-
-```bash
-bash scripts/verify-backup.sh /path/to/backup
-```
-
-The complete recovery procedure is documented in [`../docs/setup/BACKUP_AND_RECOVERY.md`](../docs/setup/BACKUP_AND_RECOVERY.md).
-
-### 9. Stop without deleting data
-
-```bash
-bash scripts/stop.sh
-```
-
-This retains Wazuh volumes, local telemetry and enrolment credentials.
-
-### 10. Restore local Wazuh data
-
-Stop the stack, verify the selected backup and restore only after confirming the destructive replacement:
-
-```bash
-bash scripts/restore.sh /path/to/backup --force
-```
-
-Credential material is intentionally not restored. Complete a new operator-approved enrolment after recovery.
-
-### 11. Destructive local reset
-
-Review the warning first:
-
-```bash
-bash scripts/reset.sh
-```
-
-To delete local Wazuh data and generated configuration:
-
-```bash
-bash scripts/reset.sh --confirm-destroy-local-data
-```
-
-Removing enrolment material additionally requires confirmed server-side revocation:
-
-```bash
-bash scripts/reset.sh --confirm-destroy-local-data --include-enrolment
-```
-
-Deleting local certificate files alone does not revoke the server credential.
-
-## VCC telemetry format
-
-The collector accepts newline-delimited JSON and requires at least:
-
-```json
-{
-  "schema_version": "1.0",
-  "event_id": "evt-example-001",
-  "event_time": "2026-08-01T09:14:21Z",
-  "pod_id": "pod-03",
-  "event_type": "authentication",
-  "synthetic": true
-}
-```
-
-The collector fails closed when:
-
-- the event is not marked synthetic;
-- required fields are missing;
-- an event carries a different pod from the server-issued response header;
-- the server-issued pod changes without credential reset;
-- TLS verification fails;
-- the response exceeds the configured size or event-count limit.
-
-## Initial NeoLabs rules
-
-`config/rules/neolabs_vcc_rules.xml` contains training detections for:
-
-- authentication failure;
-- repeated failures by account;
-- repeated failures by source;
-- successful authentication;
-- success following earlier failures;
-- sensitive account changes;
-- protected access-control denials;
-- telemetry quality and availability problems.
-
-These are starter rules, not proof of compromise. Analysts must inspect the underlying records, context and visibility limitations.
+## Network/security design
+
+- Dashboard binds to loopback by default.
+- Indexer and Wazuh API are not published to the host for student use.
+- Internal Wazuh components remain on the Compose internal network.
+- Pod scope is server-managed, not selected through `POD_LABEL`/URL/query parameters.
+- The collector/replay path rejects cross-pod/non-synthetic data.
 
 ## Troubleshooting order
 
-When events are missing, check in this order:
+Prefer `CHECK-NEOLABS-SOC.cmd` / `.\neolabs.cmd doctor`. For manual review, check: NeoLabs auth/runtime → raw VCC event file → manager localfile/rules (`wazuh-logtest`) → Filebeat → indexer → dashboard/time filter → freshness/telemetry-health events.
 
-1. local Compose and container health;
-2. enrolment state and certificate expiry;
-3. collector health JSON and cursor movement;
-4. HTTPS/mTLS connectivity without printing secrets;
-5. presence of records in the shared `vcc_telemetry` volume;
-6. Wazuh manager file monitoring;
-7. JSON decoding and required fields;
-8. rule loading and `wazuh-logtest` validation;
-9. indexer health and dashboard time filters.
-
-Use [`../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md`](../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md) for the full decision tree.
-
-## References
-
-- Official Wazuh documentation and `wazuh/wazuh-docker` release repository.
-- Docker Compose and Docker Engine security documentation.
-- [`../research/AUTHORITATIVE_SOURCE_REGISTER.md`](../research/AUTHORITATIVE_SOURCE_REGISTER.md).
-- VCC control-plane architecture and implementation in the private VCC Security Lab repository.
+Full decision tree: [`../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md`](../troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md).
