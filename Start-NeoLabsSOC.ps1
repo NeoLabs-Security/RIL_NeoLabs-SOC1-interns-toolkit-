@@ -40,6 +40,7 @@ function Copy-SecretToClipboard([string]$Secret) {
     throw 'Windows clipboard support is unavailable on this workstation.'
 }
 
+$dockerBootstrap = Require-File 'Start-NeoLabsDocker.ps1'
 $setupCmd = Require-File 'setup-windows.cmd'
 $neoLabsCmd = Require-File 'neolabs.cmd'
 $healthScript = Require-File 'wazuh-stack\scripts\health-check.sh'
@@ -50,7 +51,7 @@ $doctorCmd = Require-File 'CHECK-NEOLABS-SOC.cmd'
 
 if ($ValidateOnly) {
     Write-Host '[OK] One-click SOC launcher contract is valid.'
-    Write-Host '[OK] Setup, NeoLabs CLI, Wazuh health, telemetry verification, freshness, bounded repair, doctor and secure clipboard login support are present.'
+    Write-Host '[OK] Docker/WSL2 bootstrap, setup, NeoLabs CLI, Wazuh health, telemetry verification, freshness, bounded repair, doctor and secure clipboard login support are present.'
     exit 0
 }
 
@@ -59,6 +60,9 @@ Write-Host '==============================================' -ForegroundColor Dar
 Write-Host '       NeoLabs SOC Level 1 - Start Desk' -ForegroundColor Cyan
 Write-Host '==============================================' -ForegroundColor DarkCyan
 Write-Host ''
+
+Write-Step 'Preparing Docker Desktop and the WSL2 runtime...'
+& $dockerBootstrap -ToolkitRoot $Root -TimeoutSeconds 180
 
 $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 if (-not $wsl) {

@@ -9,28 +9,36 @@ This file is the current operational reference for the SOC toolkit. Technical le
 
 ## Recommended Windows workflow
 
-From the latest toolkit checkout, make sure Docker Desktop/WSL2 integration is available and double-click:
+From the latest toolkit checkout, double-click:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
+This remains the normal single student entry point. It now invokes the Docker/WSL2 bootstrap automatically before starting Wazuh.
+
 The launcher:
 
-1. checks WSL2/toolkit prerequisites;
-2. prepares the local Wazuh stack only when needed and preserves an existing `.env`;
-3. reuses a valid NeoLabs session or prompts for the assigned pod + private Access Code;
-4. connects to the current LIVE/REPLAY SOC surface;
-5. waits for manager/indexer/dashboard/telemetry services;
-6. reloads the current NeoLabs VCC rules;
-7. proves a real synthetic event for the assigned pod is searchable in `wazuh-alerts-*`;
-8. reports the latest indexed VCC event/freshness;
-9. provisions the Night Watch and Telemetry Health dashboard/saved objects when supported;
-10. checks local index retention/disk health;
-11. copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
-12. opens the local Wazuh dashboard.
+1. checks WSL and confirms the default Linux distribution is WSL2;
+2. sets WSL2 as the default for future distro installs;
+3. starts Docker Desktop if installed but stopped, requires the Linux container engine, waits for Docker readiness and proves Docker is reachable from the same default WSL2 distro used by the toolkit;
+4. prepares the local Wazuh stack only when needed and preserves an existing `.env`;
+5. reuses a valid NeoLabs session or prompts for the assigned pod + private Access Code;
+6. connects to the current LIVE/REPLAY SOC surface;
+7. waits for manager/indexer/dashboard/telemetry services;
+8. reloads the current NeoLabs VCC rules;
+9. proves a real synthetic event for the assigned pod is searchable in `wazuh-alerts-*`;
+10. reports the latest indexed VCC event/freshness;
+11. provisions the Night Watch and Telemetry Health dashboard/saved objects when supported;
+12. checks local index retention/disk health;
+13. copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
+14. opens the local Wazuh dashboard.
 
 `SOC WORKSTATION READY` therefore means the assigned-pod telemetry-to-indexer path has been verified, not merely that containers started.
+
+### Docker-only helper
+
+`START-NEOLABS-DOCKER.cmd` is available for first-time preparation or troubleshooting. It starts/verifies the Docker Desktop Linux engine and the WSL2 integration needed by the SOC stack. If Docker Desktop is not installed, it opens the official installation page and stops rather than silently installing or rewriting Docker Desktop configuration. First-time WSL enablement, a Windows restart, or enabling a specific WSL distribution in Docker Desktop can require a one-time user/admin action.
 
 ## Dashboard login
 
@@ -63,6 +71,8 @@ or:
 ```
 
 Doctor checks each stage separately: NeoLabs authentication → current LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → Wazuh indexer → dashboard. It also reports the last indexed VCC event and local index/disk status.
+
+For failures that occur before Wazuh starts, use `START-NEOLABS-DOCKER.cmd` to isolate the Windows/WSL2/Docker layer.
 
 ## Week 1 Wazuh workflow
 

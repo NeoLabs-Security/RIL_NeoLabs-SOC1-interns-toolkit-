@@ -60,6 +60,7 @@ jobs:
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
           launcher = Path('Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
+          docker_bootstrap = Path('Start-NeoLabsDocker.ps1').read_text(encoding='utf-8')
           verifier = Path('wazuh-stack/scripts/verify-telemetry-pipeline.sh').read_text(encoding='utf-8')
           repair = Path('wazuh-stack/scripts/repair-telemetry-pipeline.sh').read_text(encoding='utf-8')
           doctor = Path('wazuh-stack/scripts/doctor.sh').read_text(encoding='utf-8')
@@ -75,6 +76,11 @@ jobs:
               'pod field verification': 'data.pod_id' in verifier,
               'rule-engine verification': 'wazuh-logtest' in verifier,
               'bounded local repair': 'replayed-objects.json' in repair,
+              'launcher invokes Docker bootstrap': 'Start-NeoLabsDocker.ps1' in launcher and 'Preparing Docker Desktop and the WSL2 runtime' in launcher,
+              'Docker helper starts Desktop': 'desktop start' in docker_bootstrap or 'Start-Process -FilePath $desktopExe' in docker_bootstrap,
+              'Docker helper checks WSL2': '--set-default-version 2' in docker_bootstrap and 'Get-DefaultWslDistribution' in docker_bootstrap,
+              'Docker helper requires Linux engine': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
+              'Docker helper verifies WSL integration': 'docker info --format' in docker_bootstrap and 'WSL Integration' in docker_bootstrap,
               'launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in launcher,
               'launcher has repair fallback': 'repair-telemetry-pipeline.sh' in launcher,
               'launcher prints freshness': 'telemetry-freshness.sh' in launcher,
@@ -203,9 +209,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate Docker WSL2 bootstrap contract
+        shell: cmd
+        run: START-NEOLABS-DOCKER.cmd -ValidateOnly
+
       - name: Validate one-click Windows launcher contract
         shell: cmd
         run: START-NEOLABS-SOC.cmd -ValidateOnly
+
+      - name: Validate Windows PowerShell launcher syntax
+        shell: powershell
+        run: |
+          foreach ($path in '.\Start-NeoLabsDocker.ps1', '.\Start-NeoLabsSOC.ps1') {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
+          }
 
       - name: Validate Windows doctor shortcut exists
         shell: powershell
