@@ -21,10 +21,12 @@ function Require-File([string]$RelativePath) {
 $setupCmd = Require-File 'setup-windows.cmd'
 $neoLabsCmd = Require-File 'neolabs.cmd'
 $healthScript = Require-File 'wazuh-stack\scripts\health-check.sh'
+$telemetryVerifyScript = Require-File 'wazuh-stack\scripts\verify-telemetry-pipeline.sh'
+$telemetryRepairScript = Require-File 'wazuh-stack\scripts\repair-telemetry-pipeline.sh'
 
 if ($ValidateOnly) {
     Write-Host '[OK] One-click SOC launcher contract is valid.'
-    Write-Host '[OK] setup-windows.cmd, neolabs.cmd and health-check.sh are present.'
+    Write-Host '[OK] Setup, NeoLabs CLI, Wazuh health, telemetry verification and bounded repair scripts are present.'
     exit 0
 }
 
@@ -100,6 +102,19 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Wazuh is healthy, but the final NeoLabs runtime status check failed.'
 }
 
+# Do not tell an intern the workstation is ready merely because containers are up.
+# Prove that a real, server-scoped VCC event has reached the local telemetry file,
+# matched the NeoLabs Wazuh rules and become searchable in wazuh-alerts-*.
+Write-Step 'Proving that your assigned-pod VCC telemetry is searchable in Wazuh...'
+& wsl.exe --cd $linuxRoot bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '[WARN] The services are running, but VCC telemetry is not searchable yet. Attempting one bounded local repair.' -ForegroundColor Yellow
+    & wsl.exe --cd $linuxRoot bash wazuh-stack/scripts/repair-telemetry-pipeline.sh
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The local Wazuh telemetry path could not be verified after one safe repair attempt. The launcher will not report READY until assigned-pod VCC telemetry is searchable.'
+    }
+}
+
 $dashboardPort = (& wsl.exe --cd $linuxRoot bash -lc 'source wazuh-stack/.env >/dev/null 2>&1; printf "%s" "${WAZUH_DASHBOARD_PORT:-8443}"' | Select-Object -First 1)
 if (-not $dashboardPort -or $dashboardPort.Trim() -notmatch '^\d{2,5}$') {
     $dashboardPort = '8443'
@@ -111,6 +126,7 @@ $dashboardUrl = "https://127.0.0.1:$dashboardPort"
 Write-Host ''
 Write-Host 'SOC WORKSTATION READY' -ForegroundColor Green
 Write-Host "Dashboard: $dashboardUrl"
+Write-Host 'Verified: assigned-pod VCC telemetry is indexed and searchable in Wazuh.' -ForegroundColor Green
 Write-Host 'Your pod and scenario scope remain server-controlled by NeoLabs.'
 Write-Host ''
 
