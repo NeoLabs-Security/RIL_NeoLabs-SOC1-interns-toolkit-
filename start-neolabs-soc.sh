@@ -6,7 +6,6 @@ GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-https://pg1wb0sklb.execute-api.us-east-1.am
 ACTION="start"
 NO_BROWSER=0
 VALIDATE_ONLY=0
-ORIGINAL_ARGS=("$@")
 
 log() { printf '[NeoLabs] %s\n' "$*"; }
 ok() { printf '[OK] %s\n' "$*"; }
@@ -136,9 +135,13 @@ ensure_docker_access() {
 
   if ! docker compose version >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
-      log "Docker Compose v2 is missing; installing the Compose plugin..."
+      log "Docker Compose v2 is missing; installing a Compose v2 package..."
       run_root apt-get update
-      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
+      if apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+        run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2
+      elif apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+        run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
+      fi
     fi
   fi
   docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is unavailable."
@@ -156,9 +159,9 @@ ensure_docker_access() {
     run_root groupadd -f docker
     run_root usermod -aG docker "${USER}"
     if command -v sg >/dev/null 2>&1; then
-      local quoted=""
-      printf -v quoted ' %q' "${ORIGINAL_ARGS[@]}"
-      exec sg docker -c "cd $(printf '%q' "$ROOT_DIR") && exec bash ./start-neolabs-soc.sh${quoted}"
+      local reargs="$ACTION"
+      if (( NO_BROWSER )); then reargs+=" --no-browser"; fi
+      exec sg docker -c "cd $(printf '%q' "$ROOT_DIR") && exec bash ./start-neolabs-soc.sh ${reargs}"
     fi
     fail "Docker access was granted to ${USER}, but this shell cannot refresh group membership automatically. Log out/in once and rerun ./start-neolabs-soc.sh."
   fi
@@ -175,7 +178,11 @@ ensure_kernel_setting() {
     log "Configuring vm.max_map_count=262144 for the Wazuh indexer..."
     run_root sysctl -w vm.max_map_count=262144 >/dev/null
     if [[ -d /etc/sysctl.d ]]; then
-      printf 'vm.max_map_count=262144\n' | if (( EUID == 0 )); then tee /etc/sysctl.d/99-neolabs-wazuh.conf >/dev/null; else sudo tee /etc/sysctl.d/99-neolabs-wazuh.conf >/dev/null; fi
+      local tmp_sysctl
+      tmp_sysctl="$(mktemp)"
+      printf 'vm.max_map_count=262144\n' >"$tmp_sysctl"
+      run_root cp "$tmp_sysctl" /etc/sysctl.d/99-neolabs-wazuh.conf
+      rm -f "$tmp_sysctl"
     fi
   fi
 }
