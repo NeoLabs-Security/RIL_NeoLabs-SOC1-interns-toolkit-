@@ -5,42 +5,95 @@
 **Wazuh baseline:** 4.14.7  
 **VCC topology:** five isolated pods (`pod-01` through `pod-05`)
 
-This file is the current operational reference for the SOC toolkit. Technical learning chapters remain valid unless they conflict with this file, the root README, the current weekly assignment or the server-issued runtime state.
+This file is the current operational reference for the SOC toolkit. The supported student startup model is intentionally simple: **one root launcher per operating system**.
 
-## Recommended Windows workflow
+## Supported entry points
 
-From the latest toolkit checkout, double-click:
+### Windows
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-This remains the normal single student entry point. It now invokes the Docker/WSL2 bootstrap automatically before starting Wazuh.
+### Linux / Ubuntu
 
-The launcher:
+```bash
+bash start-neolabs-soc.sh
+```
 
-1. checks WSL and confirms the default Linux distribution is WSL2;
-2. sets WSL2 as the default for future distro installs;
-3. starts Docker Desktop if installed but stopped, requires the Linux container engine, waits for Docker readiness and proves Docker is reachable from the same default WSL2 distro used by the toolkit;
-4. prepares the local Wazuh stack only when needed and preserves an existing `.env`;
-5. reuses a valid NeoLabs session or prompts for the assigned pod + private Access Code;
-6. connects to the current LIVE/REPLAY SOC surface;
-7. waits for manager/indexer/dashboard/telemetry services;
-8. reloads the current NeoLabs VCC rules;
-9. proves a real synthetic event for the assigned pod is searchable in `wazuh-alerts-*`;
-10. reports the latest indexed VCC event/freshness;
-11. provisions the Night Watch and Telemetry Health dashboard/saved objects when supported;
-12. checks local index retention/disk health;
-13. copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
-14. opens the local Wazuh dashboard.
+After first-run permission normalisation:
 
-`SOC WORKSTATION READY` therefore means the assigned-pod telemetry-to-indexer path has been verified, not merely that containers started.
+```bash
+./start-neolabs-soc.sh
+```
 
-### Docker-only helper
+All PowerShell, Docker, Wazuh and NeoLabs helper scripts are implementation details beneath these entry points. Students should not assemble a manual setup sequence from files inside `internal/` or `wazuh-stack/scripts/`.
 
-`START-NEOLABS-DOCKER.cmd` is available for first-time preparation or troubleshooting. It starts/verifies the Docker Desktop Linux engine and the WSL2 integration needed by the SOC stack. If Docker Desktop is not installed, it opens the official installation page and stops rather than silently installing or rewriting Docker Desktop configuration. First-time WSL enablement, a Windows restart, or enabling a specific WSL distribution in Docker Desktop can require a one-time user/admin action.
+## First-run behaviour
 
-## Dashboard login
+Both launchers are designed to be idempotent orchestration layers. First run prepares missing prerequisites/configuration; subsequent runs reuse them.
+
+### Windows first run
+
+The root CMD delegates to `internal/windows/Start-NeoLabsSOC.ps1`, which:
+
+1. prepares WSL2 and Docker Desktop through the internal Windows bootstrap;
+2. installs missing Linux prerequisites inside WSL2 with the WSL root account;
+3. sets the required Wazuh indexer `vm.max_map_count` value when needed;
+4. verifies workstation capacity;
+5. generates private local Wazuh credentials if `.env` does not exist;
+6. prepares the pinned Wazuh stack if generated configuration is absent;
+7. authenticates the intern when no valid NeoLabs session exists;
+8. connects the server-authorised LIVE/REPLAY telemetry surface and starts Wazuh;
+9. waits for manager/indexer/dashboard/collector health;
+10. verifies a real synthetic event from the server-assigned pod is searchable in `wazuh-alerts-*`;
+11. reports freshness/retention/disk state;
+12. provisions the Night Watch/Telemetry Health saved objects when supported;
+13. copies the local `admin` password to the Windows clipboard without printing it; and
+14. opens the local dashboard.
+
+Windows may require a restart after first enabling WSL or one initial Linux-distribution user setup. When Windows cannot complete such an OS transition in the running process, the launcher stops clearly and the intern reruns the **same CMD** after the required restart/initialisation.
+
+### Linux / Ubuntu first run
+
+The root Bash launcher:
+
+1. installs missing base packages;
+2. on Ubuntu/Debian, installs Docker Engine + Compose v2 when Docker is absent;
+3. starts/enables Docker and grants the normal user Docker access when required;
+4. uses `sudo` only for OS-level package/kernel/group changes rather than requiring Wazuh runtime commands to be prefixed with `sudo`;
+5. sets and persists `vm.max_map_count=262144` when required;
+6. normalises executable permissions for internal shell scripts;
+7. generates/prepares Wazuh only when the local installation is absent;
+8. authenticates/reuses the NeoLabs session, connects telemetry, starts Wazuh and performs the same health/index verification as Windows.
+
+Run the Linux launcher as the normal user, not as `sudo ./start-neolabs-soc.sh`.
+
+## Subsequent-run behaviour
+
+When `.env` and generated Wazuh configuration already exist, the launchers preserve/reuse them. Normal later startup does not regenerate Wazuh passwords, delete volumes or reset pod scope. It reconnects the current authorised surface, ensures Wazuh is running, checks current server state and verifies assigned-pod telemetry remains searchable.
+
+## Diagnostics through the same entrypoint
+
+Windows:
+
+```text
+START-NEOLABS-SOC.cmd doctor
+START-NEOLABS-SOC.cmd status
+START-NEOLABS-SOC.cmd login
+```
+
+Linux:
+
+```bash
+./start-neolabs-soc.sh doctor
+./start-neolabs-soc.sh status
+./start-neolabs-soc.sh login
+```
+
+Doctor checks NeoLabs authentication → current LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → indexer → dashboard, plus latest-event freshness and local index/disk state.
+
+## Dashboard access
 
 Normal local URL:
 
@@ -48,45 +101,25 @@ Normal local URL:
 https://127.0.0.1:8443
 ```
 
-Username:
+Username is `admin`. The password is generated locally and never belongs in GitHub/student submissions.
 
-```text
-admin
-```
+Windows copies it to the clipboard without printing it. A Linux desktop may copy it when a supported clipboard utility is already available. On headless Linux servers the launcher prints an SSH local-port-forward example because there is no GUI browser on the server; the dashboard remains loopback-only.
 
-The password is generated locally during first setup. The Windows launcher copies it to the clipboard without printing it. Never put that password in a report, screenshot, Issue or Git commit.
+## READY meaning
 
-## Diagnostics
-
-Use either:
-
-```text
-CHECK-NEOLABS-SOC.cmd
-```
-
-or:
-
-```powershell
-.\neolabs.cmd doctor
-```
-
-Doctor checks each stage separately: NeoLabs authentication → current LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → Wazuh indexer → dashboard. It also reports the last indexed VCC event and local index/disk status.
-
-For failures that occur before Wazuh starts, use `START-NEOLABS-DOCKER.cmd` to isolate the Windows/WSL2/Docker layer.
+`SOC WORKSTATION READY` means the assigned-pod telemetry-to-indexer path has been verified, not merely that Docker containers started.
 
 ## Week 1 Wazuh workflow
 
-Use the preconfigured **NeoLabs — Operation Night Watch** view/dashboard when available. Otherwise use Threat Hunting/Discover against `wazuh-alerts-*` and filter the server-assigned pod.
+Use **NeoLabs — Operation Night Watch** when the saved dashboard is available; otherwise use Threat Hunting/Discover against `wazuh-alerts-*` and filter the server-assigned pod. Use **NeoLabs — Telemetry Health** / rule `100150` or launcher Doctor before interpreting zero results.
 
-Important Week 1 fields include pod ID, event type, synthetic user identity, source IP, outcome, correlation/session identifiers, Wazuh rule ID/level and original `event_time`. A separate **NeoLabs — Telemetry Health** view focuses on rule `100150` and collector/parser/visibility problems.
+Week 1 remains baseline analysis: establish normal authentication and application/API behaviour, save reusable searches, build an original-event-time timeline and document visibility gaps.
 
-Week 1 is baseline analysis. Establish normal authentication and application/API behaviour, save reusable searches, build a short original-event-time timeline and document visibility gaps. Do not treat unusual activity as malicious merely because it differs from expectations.
+## Telemetry/replay defaults
 
-## Telemetry/replay behaviour
+The VCC uses a cost-aware hybrid runtime. LIVE and replay/cloud/endpoint states remain server-controlled and pod-scoped. Replay preserves original `event_time` with replay metadata separate.
 
-The VCC uses a cost-aware hybrid runtime. During live windows SOC may receive the pod-scoped live telemetry path; during replay/cloud/endpoint states the same NeoLabs access flow loads only authorised archived telemetry for the assigned pod/scenario. Replay preserves original `event_time` and stores replay metadata separately.
-
-Normal NeoLabs VCC events are indexed as searchable Wazuh alerts so Week 1 baseline activity is visible. The toolkit verifies actual index searchability before READY. The default local alert-index retention is 30 days; disk warnings begin at 85% and become critical at 92%. The default telemetry freshness warning is 90 minutes unless locally overridden.
+Normal NeoLabs VCC events are searchable in `wazuh-alerts-*`. Default local alert retention is 30 days, disk warnings begin at 85% and are critical at 92%, and the default telemetry freshness warning is 90 minutes.
 
 ## Twelve-week SOC arc
 
