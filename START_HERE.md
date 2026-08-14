@@ -7,16 +7,36 @@ For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`
 ## Windows — recommended start
 
 1. Pull the latest toolkit.
-2. Make sure Docker Desktop is running with WSL2 integration.
-3. Double-click:
+2. Double-click:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-The launcher handles first-run preparation, authentication, LIVE/REPLAY connection, Wazuh health, current rule reload, assigned-pod telemetry indexing verification, freshness/retention checks, Night Watch saved-object provisioning and local dashboard login assistance.
+That is now the normal **single starting point**. The launcher first runs the NeoLabs Docker/WSL2 bootstrap, then handles first-run Wazuh preparation, authentication, LIVE/REPLAY connection, Wazuh health, current rule reload, assigned-pod telemetry indexing verification, freshness/retention checks, Night Watch saved-object provisioning and local dashboard login assistance.
 
-Do not begin investigation until the launcher reaches:
+The Docker bootstrap automatically:
+
+- verifies WSL is available and the default Linux distro is actually WSL2;
+- sets WSL2 as the default for future distro installs;
+- starts Docker Desktop when it is installed but stopped;
+- requires Docker Desktop's Linux container engine;
+- waits for the Docker daemon to become ready; and
+- proves `docker` is available inside the same default WSL2 distro used by the SOC toolkit.
+
+If Docker Desktop is not installed, the launcher opens the official Docker Desktop for Windows installation page and stops cleanly. First-time Windows WSL enablement, a required Windows restart, or enabling a specific Docker Desktop WSL distro integration can require a one-time Windows/Docker Desktop action and is not silently forced by the toolkit.
+
+### Optional Docker-only check
+
+If you want to prepare/test Docker before starting Wazuh, double-click:
+
+```text
+START-NEOLABS-DOCKER.cmd
+```
+
+When it reports `NEOLABS DOCKER READY`, the Docker/WSL2 layer is ready for the SOC launcher.
+
+Do not begin investigation until the SOC launcher reaches:
 
 ```text
 SOC WORKSTATION READY
@@ -49,6 +69,8 @@ or run from PowerShell in this toolkit folder:
 ```
 
 Doctor checks NeoLabs authentication, LIVE/REPLAY availability, raw VCC telemetry, the Wazuh rule engine, Filebeat, indexer and dashboard. It also reports the age of the newest indexed VCC event and local index/disk status.
+
+If the failure occurs before Wazuh starts and mentions Docker/WSL2, run `START-NEOLABS-DOCKER.cmd` to isolate that layer.
 
 ## Manual commands
 
