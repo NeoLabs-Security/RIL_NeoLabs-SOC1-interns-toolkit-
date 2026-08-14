@@ -36,11 +36,34 @@ jobs:
           neolabs pod --help >/dev/null
           neolabs doctor --help >/dev/null
 
-      - name: Validate shell syntax
+      - name: Validate shell syntax and Linux root launcher
         run: |
+          bash -n start-neolabs-soc.sh
           while IFS= read -r -d '' file; do
             bash -n "$file"
           done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
+          bash start-neolabs-soc.sh --validate-only
+
+      - name: Validate clean root entrypoint layout
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          required = [Path('START-NEOLABS-SOC.cmd'), Path('start-neolabs-soc.sh')]
+          missing = [str(p) for p in required if not p.is_file()]
+          if missing:
+              raise SystemExit('Missing root SOC entrypoints: ' + ', '.join(missing))
+          legacy = [
+              'CHECK-NEOLABS-SOC.cmd', 'START-NEOLABS-DOCKER.cmd',
+              'Start-NeoLabsDocker.ps1', 'Start-NeoLabsSOC.ps1',
+              'setup-windows.cmd', 'neolabs.cmd', 'neolabs-local.cmd', 'neolabs.ps1',
+          ]
+          present = [p for p in legacy if Path(p).exists()]
+          if present:
+              raise SystemExit('Legacy helper files must not clutter repository root: ' + ', '.join(present))
+          for path in ('internal/windows/Start-NeoLabsSOC.ps1','internal/windows/Start-NeoLabsDocker.ps1'):
+              if not Path(path).is_file():
+                  raise SystemExit(f'Missing internal Windows implementation file: {path}')
+          PY
 
       - name: Validate telemetry-to-dashboard contract
         run: |
@@ -59,8 +82,9 @@ jobs:
 
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
-          launcher = Path('Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
-          docker_bootstrap = Path('Start-NeoLabsDocker.ps1').read_text(encoding='utf-8')
+          windows_launcher = Path('internal/windows/Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
+          docker_bootstrap = Path('internal/windows/Start-NeoLabsDocker.ps1').read_text(encoding='utf-8')
+          linux_launcher = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
           verifier = Path('wazuh-stack/scripts/verify-telemetry-pipeline.sh').read_text(encoding='utf-8')
           repair = Path('wazuh-stack/scripts/repair-telemetry-pipeline.sh').read_text(encoding='utf-8')
           doctor = Path('wazuh-stack/scripts/doctor.sh').read_text(encoding='utf-8')
@@ -76,14 +100,22 @@ jobs:
               'pod field verification': 'data.pod_id' in verifier,
               'rule-engine verification': 'wazuh-logtest' in verifier,
               'bounded local repair': 'replayed-objects.json' in repair,
-              'launcher invokes Docker bootstrap': 'Start-NeoLabsDocker.ps1' in launcher and 'Preparing Docker Desktop and the WSL2 runtime' in launcher,
+              'Windows launcher invokes internal Docker bootstrap': 'Start-NeoLabsDocker.ps1' in windows_launcher,
+              'Windows launcher installs WSL packages as root': 'apt-get install' in windows_launcher and 'wsl.exe -u root' in windows_launcher,
+              'Windows launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in windows_launcher,
               'Docker helper starts Desktop': 'desktop start' in docker_bootstrap or 'Start-Process -FilePath $desktopExe' in docker_bootstrap,
               'Docker helper checks WSL2': '--set-default-version 2' in docker_bootstrap and 'Get-DefaultWslDistribution' in docker_bootstrap,
               'Docker helper requires Linux engine': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
               'Docker helper verifies WSL integration': 'docker info --format' in docker_bootstrap and 'WSL Integration' in docker_bootstrap,
-              'launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in launcher,
-              'launcher has repair fallback': 'repair-telemetry-pipeline.sh' in launcher,
-              'launcher prints freshness': 'telemetry-freshness.sh' in launcher,
+              'Linux launcher uses controlled sudo/root helper': 'run_root()' in linux_launcher and 'sudo' in linux_launcher,
+              'Linux launcher installs official Docker packages': 'docker-ce' in linux_launcher and 'docker-compose-plugin' in linux_launcher,
+              'Linux launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in linux_launcher,
+              'Windows launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in windows_launcher,
+              'Linux launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in linux_launcher,
+              'Windows launcher has repair fallback': 'repair-telemetry-pipeline.sh' in windows_launcher,
+              'Linux launcher has repair fallback': 'repair-telemetry-pipeline.sh' in linux_launcher,
+              'Windows launcher prints freshness': 'telemetry-freshness.sh' in windows_launcher,
+              'Linux launcher prints freshness': 'telemetry-freshness.sh' in linux_launcher,
               'doctor checks Filebeat': 'filebeat test output' in doctor,
               'doctor checks dashboard': '7/7 Wazuh dashboard' in doctor,
               'retention is scoped': 'wazuh-alerts-*' in retention and "_ism/add/wazuh-alerts-*" in retention,
@@ -92,7 +124,7 @@ jobs:
           }
           missing = [name for name, ok in required.items() if not ok]
           if missing:
-              raise SystemExit('Telemetry contract incomplete: ' + ', '.join(missing))
+              raise SystemExit('Telemetry/startup contract incomplete: ' + ', '.join(missing))
 
           expected = {
               'neolabs-vcc-alerts': 'index-pattern',
@@ -123,6 +155,7 @@ jobs:
 
       - name: Test Linux workstation compatibility profile
         env:
+          SOC_HARD_MIN_MEMORY_GIB: "1"
           SOC_MIN_MEMORY_GIB: "1"
           SOC_RECOMMENDED_MEMORY_GIB: "1"
           SOC_MIN_DISK_GIB: "1"
@@ -140,7 +173,6 @@ jobs:
 
           rule_file = Path("wazuh-stack/config/rules/neolabs_vcc_rules.xml")
           ET.parse(rule_file)
-
           required = {"schema_version","event_id","event_time","pod_id","event_type","synthetic"}
           for path in Path("sample-logs").rglob("*.ndjson"):
               event_ids = set()
@@ -209,27 +241,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Validate Docker WSL2 bootstrap contract
-        shell: cmd
-        run: START-NEOLABS-DOCKER.cmd -ValidateOnly
-
-      - name: Validate one-click Windows launcher contract
+      - name: Validate one-click Windows root launcher contract
         shell: cmd
         run: START-NEOLABS-SOC.cmd -ValidateOnly
 
-      - name: Validate Windows PowerShell launcher syntax
+      - name: Validate internal Windows PowerShell syntax
         shell: powershell
         run: |
-          foreach ($path in '.\Start-NeoLabsDocker.ps1', '.\Start-NeoLabsSOC.ps1') {
+          foreach ($path in '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Start-NeoLabsSOC.ps1') {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
           }
 
-      - name: Validate Windows doctor shortcut exists
+      - name: Validate root CMD routes to internal implementation
         shell: powershell
         run: |
-          if (-not (Test-Path .\CHECK-NEOLABS-SOC.cmd)) { throw 'CHECK-NEOLABS-SOC.cmd is missing' }
-          $text = Get-Content .\CHECK-NEOLABS-SOC.cmd -Raw
-          if ($text -notmatch 'neolabs.cmd" doctor') { throw 'Windows doctor shortcut does not call neolabs doctor' }
+          $text = Get-Content .\START-NEOLABS-SOC.cmd -Raw
+          if ($text -notmatch 'internal\\windows\\Start-NeoLabsSOC.ps1') { throw 'Root CMD does not route to the internal Windows launcher' }
+          if (-not (Test-Path .\start-neolabs-soc.sh)) { throw 'Linux root launcher is missing' }
