@@ -29,8 +29,11 @@ Double-click it from the cloned toolkit folder. It safely orchestrates the exist
 5. waits for the Wazuh manager, indexer, dashboard and telemetry collector to become healthy;
 6. confirms the current server-issued pod/scenario state;
 7. proves assigned-pod VCC telemetry is indexed and searchable in `wazuh-alerts-*`;
-8. securely copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
-9. opens the local Wazuh dashboard in the default browser.
+8. prints the age of the newest indexed VCC event so stale feeds are visible immediately;
+9. applies the local 30-day Wazuh alert-retention policy and disk warnings;
+10. provisions the pod-scoped **NeoLabs — Operation Night Watch** and **NeoLabs — Telemetry Health** saved dashboards/searches;
+11. securely copies the local Wazuh `admin` password to the Windows clipboard without printing it; and
+12. opens the preconfigured Night Watch dashboard when saved-object provisioning succeeds.
 
 At the Wazuh login page use:
 
@@ -40,6 +43,8 @@ Password: press Ctrl+V (the launcher copied it to your clipboard)
 ```
 
 After signing in, copy any non-sensitive text to replace the password currently held in your clipboard. On a shared or screen-recorded workstation, advanced users can start the PowerShell launcher with `-NoClipboard`; the password remains private in the local `wazuh-stack/.env` and is never committed to GitHub.
+
+The Night Watch saved view is automatically scoped to the **server-issued pod** and includes `pod_id`, `event_type`, user identity, `source_ip`, `outcome`, `correlation_id`, rule level and original `event_time`. On Wazuh 4.14.7, the original JSON `user` field is represented as `data.dstuser`, so the saved view uses that field for identity.
 
 Existing local Wazuh secrets and configuration are preserved. The launcher does not let a student choose another telemetry target or bypass server-side pod/track scope.
 
@@ -63,11 +68,40 @@ Then you can use the manual flow:
 .\neolabs.cmd status
 .\neolabs.cmd pod info
 .\neolabs.cmd connect
+.\neolabs.cmd doctor
 ```
 
 `login` asks only for **your assigned pod** and **your private NeoLabs Access Code**. SOC telemetry scope is server-controlled; you do not choose another pod or telemetry target.
 
 The gateway decides whether the current authorised SOC learning surface is LIVE or REPLAY. `connect` handles that mode and feeds the assigned pod's approved telemetry into the same local Wazuh workflow.
+
+### If something looks wrong
+
+Double-click:
+
+```text
+CHECK-NEOLABS-SOC.cmd
+```
+
+or run:
+
+```powershell
+.\neolabs.cmd doctor
+```
+
+The doctor prints each stage separately:
+
+```text
+VCC authentication
+→ live/replay telemetry surface
+→ raw VCC event file
+→ Wazuh rule engine
+→ Filebeat
+→ Wazuh indexer
+→ Wazuh dashboard
+```
+
+It also prints the latest indexed-event freshness, indexer disk usage/alert-index size and whether the local retention policy is present.
 
 ### Complete Operation Night Watch
 
@@ -77,13 +111,13 @@ Use the Week 1 pack for the exact task and deliverables. Official submissions be
 
 ```text
 EASIEST:   double-click START-NEOLABS-SOC.cmd
+CHECK:     double-click CHECK-NEOLABS-SOC.cmd
 
 MANUAL:    .\neolabs.cmd login
 MANUAL:    .\neolabs.cmd status
 MANUAL:    .\neolabs.cmd connect
+MANUAL:    .\neolabs.cmd doctor
 
-DO NOT USE: neolabs login
-DO NOT USE: neolabs status
 DO NOT USE: python tools\neolabs.py login --base-url ...
 ```
 
@@ -103,13 +137,18 @@ The Markdown source modules under `docs/` remain available for search, notes and
 ## What is preconfigured here
 
 - `START-NEOLABS-SOC.cmd` one-click Windows SOC startup;
+- `CHECK-NEOLABS-SOC.cmd` / `neolabs doctor` staged telemetry health diagnosis;
 - local Windows `neolabs.cmd` launcher that avoids pip/PATH failures;
 - Windows/WSL2 readiness and first-run setup;
-- underlying Python pod-access/authentication client for non-Windows/manual use;
 - containerised Wazuh manager/indexer/dashboard stack;
 - NeoLabs pod-scoped telemetry collector and custom rules;
 - automatic signed replay ingestion and live support for scheduled windows;
 - end-to-end verification that assigned-pod VCC events are searchable in Wazuh before READY is displayed;
+- last-event freshness reporting with a 90-minute warning threshold;
+- pod-scoped Night Watch saved search/dashboard with Week 1 investigation fields;
+- pod-scoped Telemetry Health saved search/dashboard around rule `100150`;
+- local `wazuh-alerts-*` Index State Management retention, default 30 days;
+- indexer filesystem and alert-index size warnings at 85%/92% thresholds;
 - private local Wazuh admin credentials with clipboard-assisted Windows login;
 - preflight, health, backup, restore and reset controls;
 - SecOps/Wazuh educational material plus the Week 1 Log Literacy launch attachment;
@@ -117,12 +156,16 @@ The Markdown source modules under `docs/` remain available for search, notes and
 - synthetic labs/sample telemetry;
 - branded PDF publication and validation workflows.
 
+The retention policy affects only the intern's **local Wazuh alert indices**. NeoLabs VCC telemetry archives, approved evidence and server-side records are unaffected. Existing non-NeoLabs ISM policies are not force-overridden.
+
 ## Useful Windows commands
 
 ```text
-START-NEOLABS-SOC.cmd      setup if needed + authenticate + connect + verify telemetry + copy login password + open Wazuh
+START-NEOLABS-SOC.cmd      setup + authenticate + connect + verify telemetry + freshness + open Night Watch
+CHECK-NEOLABS-SOC.cmd      staged VCC-to-dashboard health diagnosis
 .\neolabs.cmd login       authenticate with your assigned pod + private Access Code
 .\neolabs.cmd connect     load the current authorised replay/live SOC surface into Wazuh
+.\neolabs.cmd doctor      verify auth, telemetry, raw file, rules, Filebeat, indexer and dashboard
 .\neolabs.cmd status      show current runtime, pod and scenario
 .\neolabs.cmd evidence    download approved evidence for your pod/scenario
 .\neolabs.cmd pod info    show the server-assigned pod
@@ -134,6 +177,7 @@ START-NEOLABS-SOC.cmd      setup if needed + authenticate + connect + verify tel
 ```text
 README.md                   ← you are here
 START-NEOLABS-SOC.cmd       ← recommended Windows one-click launcher
+CHECK-NEOLABS-SOC.cmd       ← one-click staged SOC health check
 Start-NeoLabsSOC.ps1        ← one-click orchestration implementation
 setup-windows.cmd           ← Windows/WSL2 first-run preparation
 neolabs.cmd                 ← use this for individual Windows NeoLabs commands
@@ -142,8 +186,9 @@ neolabs.ps1                 ← PowerShell launcher implementation
 START_HERE.md               ← workstation/orientation detail
 docs/week-01/               ← current Week 1 instructions
 publications/               ← branded student PDFs
-wazuh-stack/                ← preconfigured SOC tooling
-tools/neolabs.py            ← underlying client
+wazuh-stack/                ← preconfigured SOC tooling + dashboards/retention/doctor
+tools/cli.py                ← doctor-aware command entry point
+tools/neolabs.py            ← underlying VCC access client
 templates/                  ← evidence/report templates
 sample-logs/ + labs/        ← safe practice material
 research/ + references/     ← deeper reference material
