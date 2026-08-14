@@ -43,12 +43,16 @@ if [[ -z "${response}" ]]; then
   exit 1
 fi
 
-printf '%s' "${response}" | python3 - "${pod}" "${STALE_MINUTES}" <<'PY'
+tmp="$(mktemp)"
+trap 'rm -f "${tmp}"' EXIT
+printf '%s' "${response}" > "${tmp}"
+python3 - "${tmp}" "${pod}" "${STALE_MINUTES}" <<'PY'
 import datetime as dt, json, sys
-pod=sys.argv[1]
-stale_minutes=int(sys.argv[2])
+response_path=sys.argv[1]
+pod=sys.argv[2]
+stale_minutes=int(sys.argv[3])
 try:
-    data=json.load(sys.stdin)
+    data=json.load(open(response_path, encoding='utf-8'))
     hits=data.get('hits',{}).get('hits',[])
 except Exception:
     hits=[]
