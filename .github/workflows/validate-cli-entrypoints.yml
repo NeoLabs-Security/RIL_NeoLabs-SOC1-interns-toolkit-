@@ -1,0 +1,57 @@
+name: Validate NeoLabs CLI entrypoints
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  linux-cli-entrypoints:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Verify clean-checkout Python entry paths
+        run: |
+          python3 -m tools.cli --help >/dev/null
+          python3 tools/cli.py --help >/dev/null
+          bash ./start-neolabs-soc.sh --validate-only
+
+  windows-cli-invocation-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Windows launcher uses package-safe CLI invocation
+        shell: powershell
+        run: |
+          $path = '.\internal\windows\Start-NeoLabsSOC.ps1'
+          $text = Get-Content $path -Raw
+          if ($text -notmatch 'python3\s+-m\s+tools\.cli') {
+            throw 'Windows launcher must invoke the NeoLabs CLI as: python3 -m tools.cli'
+          }
+          if ($text -match 'python3\s+tools[/\\]cli\.py') {
+            throw 'Windows launcher must not invoke tools/cli.py directly; this can reintroduce Python import-path failures.'
+          }
+          if ($text -notmatch "Require-RepoFile 'tools\\__init__\.py'") {
+            throw 'Windows launcher must verify the tools package marker exists.'
+          }
+      - name: Validate Windows launcher parser and root contract
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\internal\windows\Start-NeoLabsSOC.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+          cmd /c START-NEOLABS-SOC.cmd -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
