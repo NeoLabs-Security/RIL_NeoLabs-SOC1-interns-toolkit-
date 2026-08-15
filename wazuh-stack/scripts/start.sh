@@ -37,6 +37,7 @@ required_paths=(
   "${generated_required_paths[@]}"
   config/rules/neolabs_vcc_rules.xml
   dashboard/neolabs-saved-objects.ndjson.template
+  scripts/recover-runtime.sh
   scripts/configure-index-retention.sh
   scripts/provision-dashboard-objects.sh
   scripts/disk-warning.sh
@@ -52,16 +53,16 @@ for path in "${required_paths[@]}"; do
 done
 
 docker compose --env-file .env config --quiet
-docker compose --env-file .env up -d --build
 
-# Bind-mounted custom rules can change after an intern pulls a newer toolkit.
-# `docker compose up` does not necessarily restart an already-running manager,
-# so explicitly restart it to guarantee wazuh-analysisd loads the current
-# NeoLabs VCC rule set before we declare the workstation ready.
-printf 'Reloading current NeoLabs VCC rules in the Wazuh manager...\n'
-docker compose --env-file .env restart wazuh.manager >/dev/null
+# Start in dependency-safe stages instead of one monolithic `compose up`.
+# An existing unhealthy manager must not cause Compose to abort the entire run
+# before NeoLabs gets a chance to repair it. The recovery helper preserves the
+# indexer data, pod telemetry and VCC secrets while doing bounded manager/
+# dashboard/collector repair.
+printf 'Starting Wazuh through the NeoLabs bounded runtime recovery path...\n'
+./scripts/recover-runtime.sh
 
-printf 'Wazuh services were started. Waiting for health checks...\n'
+printf 'Wazuh services were started. Waiting for final health checks...\n'
 ./scripts/health-check.sh --wait 600
 
 # Post-start UX/maintenance is deliberately fail-soft. A dashboard-object or
