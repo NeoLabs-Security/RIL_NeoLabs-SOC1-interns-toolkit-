@@ -34,8 +34,12 @@ jobs:
         run: |
           $socPath = '.\internal\windows\Start-NeoLabsSOC.ps1'
           $dockerPath = '.\internal\windows\Start-NeoLabsDocker.ps1'
+          $repairPath = '.\internal\windows\Repair-NeoLabsRuntime.ps1'
+          $cmdPath = '.\START-NEOLABS-SOC.cmd'
           $socText = Get-Content $socPath -Raw
           $dockerText = Get-Content $dockerPath -Raw
+          $repairText = Get-Content $repairPath -Raw
+          $cmdText = Get-Content $cmdPath -Raw
 
           if ($socText -notmatch 'python3\s+-m\s+tools\.cli') {
             throw 'Windows launcher must invoke the NeoLabs CLI as: python3 -m tools.cli'
@@ -58,11 +62,26 @@ jobs:
           if ($dockerText -notmatch "Wait-WslDocker") {
             throw 'Docker bootstrap must verify Docker from inside the selected WSL2 distro.'
           }
+          if ($repairText -notmatch 'wsl\.exe\s+--update') {
+            throw 'Windows AutoFix must be able to update WSL automatically.'
+          }
+          if ($repairText -notmatch 'desktop\s+update') {
+            throw 'Windows AutoFix must include a bounded Docker Desktop update recovery path.'
+          }
+          if ($repairText -notmatch 'Save-RuntimeDiagnostics') {
+            throw 'Windows AutoFix must save local diagnostics when bounded recovery fails.'
+          }
+          if ($repairText -notmatch 'MinimumWslVersion') {
+            throw 'Windows AutoFix must enforce the Docker-supported minimum WSL runtime.'
+          }
+          if ($cmdText -notmatch 'Repair-NeoLabsRuntime\.ps1') {
+            throw 'Root Windows launcher must run AutoFix before the SOC launcher.'
+          }
 
       - name: Validate Windows PowerShell parsers and root contract
         shell: powershell
         run: |
-          foreach ($path in @('.\internal\windows\Start-NeoLabsSOC.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1')) {
+          foreach ($path in @('.\internal\windows\Start-NeoLabsSOC.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Repair-NeoLabsRuntime.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
