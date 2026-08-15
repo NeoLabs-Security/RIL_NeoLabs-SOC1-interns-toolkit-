@@ -16,6 +16,13 @@ is_wsl() {
   [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease 2>/dev/null
 }
 
+run_root() {
+  if (( EUID == 0 )); then "$@"
+  elif command -v sudo >/dev/null 2>&1; then sudo "$@"
+  else fail 'Administrator access is required for the one-time Ubuntu/Debian runtime repair.'
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./start-neolabs-soc.sh [start|doctor|status|login] [--no-browser]
@@ -25,7 +32,7 @@ hands off to the shared NeoLabs SOC/Wazuh orchestrator. Healthy subsequent runs
 do not repeat package installation, sudo setup or Docker service recovery.
 
 Windows/WSL2: use START-NEOLABS-SOC.cmd. If this bash launcher is invoked inside
-WSL anyway, it will use Docker Desktop only and will never install native Docker.
+WSL anyway, it uses Docker Desktop only and never installs native Docker.
 EOF
 }
 
@@ -42,10 +49,7 @@ done
 cd "$ROOT_DIR"
 
 if (( VALIDATE_ONLY )); then
-  for path in \
-    internal/linux/Test-NeoLabsRuntime.sh \
-    internal/linux/Repair-NeoLabsRuntime.sh \
-    internal/common/Start-NeoLabsSOC.sh; do
+  for path in internal/linux/Test-NeoLabsRuntime.sh internal/linux/Repair-NeoLabsRuntime.sh internal/common/Start-NeoLabsSOC.sh; do
     [[ -f "$path" ]] || fail "Required launcher component is missing: $path"
   done
   bash internal/linux/Test-NeoLabsRuntime.sh --validate-only >/dev/null
@@ -56,7 +60,7 @@ if (( VALIDATE_ONLY )); then
 fi
 
 if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != root ]]; then
-  fail 'Do not run the whole NeoLabs launcher with sudo. Run it as the normal intern user; AutoFix elevates only the OS operations that actually need it.'
+  fail 'Do not run the whole NeoLabs launcher with sudo. Run it as the normal intern user; AutoFix elevates only OS operations that actually need it.'
 fi
 
 common_args=("$ACTION")
@@ -79,17 +83,28 @@ else
   bash internal/linux/Repair-NeoLabsRuntime.sh || fail 'Linux AutoFix could not safely prepare this server. Review the diagnostic log path printed above.'
 fi
 
-# If AutoFix just added the intern to the docker group, refresh only this process
-# instead of requiring a logout or repeating the installer. The guard prevents a
-# loop if an unusual host still cannot use the local socket after group refresh.
+# AutoFix can repair Docker group membership, but the current shell does not gain
+# the new supplemental group until it is refreshed. Also cover the stale remote
+# DOCKER_CONTEXT case where root can reach the local socket even if caller `docker
+# info` happens to reach some other endpoint.
 if ! bash internal/linux/Test-NeoLabsRuntime.sh; then
-  if [[ "${NEOLABS_GROUP_REFRESHED:-0}" != 1 ]] && command -v sg >/dev/null 2>&1 && getent group docker 2>/dev/null | grep -Eq "[:,]${USER}(,|$)"; then
-    warn 'Docker access was repaired; refreshing docker-group membership for this launcher process.'
-    printf -v quoted_root '%q' "$ROOT_DIR"
-    printf -v quoted_action '%q' "$ACTION"
-    extra=''
-    if (( NO_BROWSER )); then extra=' --no-browser'; fi
-    exec sg docker -c "cd ${quoted_root} && NEOLABS_GROUP_REFRESHED=1 exec bash ./start-neolabs-soc.sh ${quoted_action}${extra}"
+  if [[ "${NEOLABS_GROUP_REFRESHED:-0}" != 1 && -S /var/run/docker.sock ]]; then
+    root_local="$(run_root env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+    if [[ "$root_local" == linux ]]; then
+      if ! getent group docker 2>/dev/null | grep -Eq "[:,]${USER}(,|$)"; then
+        log "Granting ${USER} local Docker access once..."
+        run_root groupadd -f docker
+        run_root usermod -aG docker "$USER"
+      fi
+      if command -v sg >/dev/null 2>&1; then
+        warn 'Refreshing docker-group membership for this launcher process.'
+        printf -v quoted_root '%q' "$ROOT_DIR"
+        printf -v quoted_action '%q' "$ACTION"
+        extra=''
+        if (( NO_BROWSER )); then extra=' --no-browser'; fi
+        exec sg docker -c "cd ${quoted_root} && NEOLABS_GROUP_REFRESHED=1 exec bash ./start-neolabs-soc.sh ${quoted_action}${extra}"
+      fi
+    fi
   fi
   fail 'Ubuntu/Debian AutoFix completed, but the native runtime still fails its positive readiness test. Use the newest ~/.local/state/neolabs/logs/linux-runtime-*.txt for operator review.'
 fi
