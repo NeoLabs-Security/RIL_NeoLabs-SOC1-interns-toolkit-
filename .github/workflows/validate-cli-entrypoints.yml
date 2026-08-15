@@ -35,6 +35,28 @@ jobs:
           grep -q 'save_diagnostics' <<<"$repair_text" || { echo 'Linux AutoFix must save diagnostics when bounded recovery fails.' >&2; exit 1; }
           grep -q 'Repair-NeoLabsRuntime.sh' <<<"$launcher_text" || { echo 'Root Linux launcher must run AutoFix before the SOC workflow.' >&2; exit 1; }
 
+          # Windows interns sometimes enter the Linux launcher from inside WSL.
+          # That path must use the Windows WSL root bridge rather than prompting
+          # them for a separate Linux sudo password.
+          grep -q 'WSL_DISTRO_NAME' <<<"$launcher_text" || { echo 'WSL-aware launcher detection is missing.' >&2; exit 1; }
+          grep -q 'wsl.exe --distribution' <<<"$launcher_text" || { echo 'WSL root bridge is missing; Windows interns could be prompted for sudo.' >&2; exit 1; }
+          grep -q 'no Linux sudo password required' <<<"$launcher_text" || { echo 'WSL no-sudo AutoFix contract is missing.' >&2; exit 1; }
+
+          # An interrupted Wazuh preparation must be repaired before session/login
+          # checks, so large image pulls cannot occur after authentication starts.
+          for required in root-ca.pem wazuh.indexer.pem wazuh.manager.pem wazuh.dashboard.pem internal_users.yml; do
+            grep -q "$required" <<<"$launcher_text" || { echo "Linux launcher atomic Wazuh check is missing: $required" >&2; exit 1; }
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          prepare = text.index('Preparing the pinned Wazuh stack before NeoLabs login/connect')
+          session = text.index('Checking your saved NeoLabs session')
+          connect = text.index('Connecting authorised VCC telemetry and starting Wazuh')
+          if not (prepare < session < connect):
+              raise SystemExit('Wazuh preparation/downloads must happen before session validation and connect')
+          PY
+
   windows-cli-invocation-contract:
     runs-on: windows-latest
     timeout-minutes: 5
