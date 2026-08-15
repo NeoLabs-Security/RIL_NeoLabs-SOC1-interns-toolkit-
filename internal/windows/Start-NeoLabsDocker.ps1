@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:DockerCli = $null
+$script:DockerContext = $null
 
 if (-not $ToolkitRoot) {
     $ToolkitRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -57,21 +58,81 @@ function Invoke-ElevatedPowerShell([string]$Command) {
     return $process.ExitCode
 }
 
-function Get-DockerOsType {
-    if (-not $script:DockerCli) { return $null }
-    try {
-        $value = (& $script:DockerCli info --format '{{.OSType}}' 2>$null | Select-Object -First 1)
-        if ($LASTEXITCODE -eq 0 -and $value) { return $value.Trim().ToLowerInvariant() }
-    } catch { }
-    return $null
-}
-
 function Test-DockerDesktopCli {
     if (-not $script:DockerCli) { return $false }
     try {
         & $script:DockerCli desktop version *> $null
         return ($LASTEXITCODE -eq 0)
     } catch { return $false }
+}
+
+function Test-DockerDesktopRunning {
+    if (-not (Test-DockerDesktopCli)) { return $false }
+    try {
+        $status = (& $script:DockerCli desktop status 2>$null | Out-String)
+        return ($LASTEXITCODE -eq 0 -and $status -match '(?im)\brunning\b')
+    } catch { return $false }
+}
+
+function Test-DockerContext([string]$Name) {
+    if (-not $script:DockerCli) { return $false }
+    try {
+        & $script:DockerCli context inspect $Name *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+
+function Resolve-NeoLabsDockerContext {
+    # Docker Desktop for Linux containers normally exposes the desktop-linux context.
+    # Use it only for this launcher process so an intern's global Docker context is not changed.
+    if (Test-DockerContext 'desktop-linux') {
+        $script:DockerContext = 'desktop-linux'
+        $env:DOCKER_CONTEXT = 'desktop-linux'
+        Write-Host '[OK] Docker context: desktop-linux (NeoLabs process only).' -ForegroundColor Green
+    } else {
+        $script:DockerContext = $null
+        Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-DockerOsType {
+    if (-not $script:DockerCli) { return $null }
+    try {
+        $args = @()
+        if ($script:DockerContext) { $args += @('--context', $script:DockerContext) }
+        $args += @('info', '--format', '{{.OSType}}')
+        $value = (& $script:DockerCli @args 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $value) { return $value.Trim().ToLowerInvariant() }
+    } catch { }
+    return $null
+}
+
+function Wait-DockerEngine([int]$Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    do {
+        $osType = Get-DockerOsType
+        if ($osType) { return $osType }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+    return $null
+}
+
+function Get-WslDockerOsType([string]$DistroName, [string]$LinuxPath) {
+    try {
+        $value = (& wsl.exe --distribution $DistroName --cd $LinuxPath --exec sh -lc 'docker info --format "{{.OSType}}" 2>/dev/null' 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $value) { return $value.Trim().ToLowerInvariant() }
+    } catch { }
+    return $null
+}
+
+function Wait-WslDocker([string]$DistroName, [string]$LinuxPath, [int]$Seconds) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    do {
+        $osType = Get-WslDockerOsType $DistroName $LinuxPath
+        if ($osType) { return $osType }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+    return $null
 }
 
 function Install-DockerDesktopWithWinget {
@@ -97,28 +158,13 @@ function Get-NeoLabsWindowsPlatform {
     $identity = "$manufacturer $model $family".ToLowerInvariant()
 
     $virtualPatterns = @(
-        'virtual machine',
-        'vmware',
-        'virtualbox',
-        'qemu',
-        'kvm',
-        'xen',
-        'amazon ec2',
-        'google compute engine',
-        'digitalocean',
-        'openstack',
-        'parallels',
-        'bhyve',
-        'bochs',
-        'nutanix',
-        'hvm domu'
+        'virtual machine','vmware','virtualbox','qemu','kvm','xen','amazon ec2',
+        'google compute engine','digitalocean','openstack','parallels','bhyve','bochs',
+        'nutanix','hvm domu'
     )
     $isVirtual = $false
     foreach ($pattern in $virtualPatterns) {
-        if ($identity.Contains($pattern)) {
-            $isVirtual = $true
-            break
-        }
+        if ($identity.Contains($pattern)) { $isVirtual = $true; break }
     }
 
     return [pscustomobject]@{
@@ -148,15 +194,13 @@ function Stop-UnsupportedWindowsPlatform([string]$Reason, $Platform) {
     Write-Host '  - VPS / remote server: use Ubuntu or Debian Linux and run start-neolabs-soc.sh'
     Write-Host '  - Windows Server VPS and Windows VM/VPS guests are not supported for the SOC workstation.'
     Write-Host ''
-    Write-Host 'For a VPS, rebuild/create it with Ubuntu 22.04/24.04 or a current Debian release, then run:' -ForegroundColor Cyan
-    Write-Host '  bash start-neolabs-soc.sh'
-    Write-Host ''
-    Write-Host 'WSL2 cannot create missing nested-virtualization capability from inside a VPS. That capability is controlled by the host/hypervisor provider.' -ForegroundColor DarkYellow
     exit 3
 }
 
 if ($ValidateOnly) {
     Write-Host '[OK] Internal Windows Docker/WSL2 bootstrap contract is valid.'
+    Write-Host '[OK] Docker Desktop readiness uses the Desktop CLI plus daemon health, not UI status alone.'
+    Write-Host '[OK] NeoLabs prefers desktop-linux without permanently changing the intern global Docker context.'
     exit 0
 }
 
@@ -187,26 +231,26 @@ if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
 
 Write-Step 'Checking WSL2...'
 & wsl.exe --set-default-version 2 *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Windows could not set WSL2 as the default. Confirm hardware virtualisation is enabled in the physical computer BIOS/UEFI, run `wsl --update`, restart if requested, and retry.' }
+if ($LASTEXITCODE -ne 0) { throw 'Windows could not set WSL2 as the default. Run `wsl --update`, confirm hardware virtualisation is enabled, restart if requested, and retry.' }
 
 $defaultDistro = Get-DefaultWslDistribution
 if (-not $defaultDistro) {
     Write-Step 'No Linux distribution is installed. Requesting an Ubuntu WSL2 installation...'
     $exitCode = Invoke-ElevatedPowerShell 'wsl.exe --install -d Ubuntu'
-    if ($exitCode -ne 0) { throw 'Windows could not install a WSL2 Linux distribution automatically. Install any current WSL2 distro and retry.' }
-    throw 'The WSL2 Linux distribution installation was started. Restart Windows if requested and launch the new Linux distro once to create its Linux user, then rerun START-NEOLABS-SOC.cmd.'
+    if ($exitCode -ne 0) { throw 'Windows could not install Ubuntu WSL2 automatically.' }
+    throw 'Ubuntu WSL2 installation was started. Restart Windows if requested, launch Ubuntu once to create its Linux user, then rerun START-NEOLABS-SOC.cmd.'
 }
 if ($defaultDistro.Version -ne 2) {
     Write-Step "Converting '$($defaultDistro.Name)' to WSL2..."
     & wsl.exe --set-version $defaultDistro.Name 2
-    if ($LASTEXITCODE -ne 0) { throw "Could not convert '$($defaultDistro.Name)' to WSL2. On a physical Windows computer, confirm virtualisation is enabled in BIOS/UEFI and retry." }
+    if ($LASTEXITCODE -ne 0) { throw "Could not convert '$($defaultDistro.Name)' to WSL2." }
     $defaultDistro = Get-DefaultWslDistribution
-    if (-not $defaultDistro -or $defaultDistro.Version -ne 2) { throw 'The default Linux distribution is not running as WSL2 yet. Restart Windows if requested and retry.' }
+    if (-not $defaultDistro -or $defaultDistro.Version -ne 2) { throw 'The default Linux distribution is not running as WSL2 yet.' }
 }
 Write-Host "[OK] Default WSL distro: $($defaultDistro.Name) (WSL2)" -ForegroundColor Green
 
 $linuxRoot = (& wsl.exe --distribution $defaultDistro.Name --exec wslpath -a $ToolkitRoot 2>$null | Select-Object -First 1)
-if (-not $linuxRoot) { throw 'The SOC toolkit folder cannot be translated into WSL2. Move/clone it to a location visible to WSL2 and retry.' }
+if (-not $linuxRoot) { throw 'The SOC toolkit folder cannot be translated into WSL2.' }
 $linuxRoot = $linuxRoot.Trim()
 
 $script:DockerCli = Find-DockerCliExecutable
@@ -215,66 +259,89 @@ if (-not $script:DockerCli -and -not $desktopExe) {
     $installed = Install-DockerDesktopWithWinget
     if (-not $installed) {
         try { Start-Process 'https://docs.docker.com/desktop/setup/install/windows-install/' } catch { }
-        throw 'Docker Desktop is missing and automatic winget installation was unavailable or failed. The official install page has been opened.'
+        throw 'Docker Desktop is missing and automatic installation failed.'
     }
     $script:DockerCli = Find-DockerCliExecutable
     $desktopExe = Find-DockerDesktopExecutable
-    if (-not $script:DockerCli -and -not $desktopExe) { throw 'Docker Desktop installed but Windows has not exposed it yet. Restart/sign out if the installer requested it, then rerun START-NEOLABS-SOC.cmd.' }
-    Write-Host '[OK] Docker Desktop installed.' -ForegroundColor Green
+    if (-not $script:DockerCli -and -not $desktopExe) { throw 'Docker Desktop installed but Windows has not exposed it yet. Restart/sign out if requested, then rerun the launcher.' }
 }
 
-Write-Step 'Starting Docker Desktop if needed...'
-$osType = Get-DockerOsType
-if (-not $osType) {
-    $startedWithCli = $false
-    if ($script:DockerCli -and (Test-DockerDesktopCli)) {
-        try {
-            & $script:DockerCli desktop start --timeout $TimeoutSeconds *> $null
-            $startedWithCli = ($LASTEXITCODE -eq 0)
-        } catch { $startedWithCli = $false }
-    }
-    if (-not $startedWithCli) {
-        if (-not $desktopExe) { $desktopExe = Find-DockerDesktopExecutable }
-        if (-not $desktopExe) { throw 'Docker Desktop is installed but its executable could not be located.' }
-        Start-Process -FilePath $desktopExe | Out-Null
-    }
-}
 if (-not $script:DockerCli) { $script:DockerCli = Find-DockerCliExecutable }
-if (-not $script:DockerCli) { throw 'Docker Desktop started, but docker.exe could not be found.' }
+if (-not $script:DockerCli) { throw 'docker.exe could not be found.' }
 
-Write-Step "Waiting up to $TimeoutSeconds seconds for the Docker Linux engine..."
-$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-do {
-    Start-Sleep -Seconds 3
-    $osType = Get-DockerOsType
-    if ($osType) { break }
-} while ((Get-Date) -lt $deadline)
-if (-not $osType) { throw 'Docker Desktop did not become ready before the timeout. Resolve any first-run/licence/update/virtualisation prompt and retry.' }
+Resolve-NeoLabsDockerContext
+$osType = Get-DockerOsType
+
+if ($osType) {
+    Write-Host "[OK] Docker daemon already responding ($osType containers)." -ForegroundColor Green
+} else {
+    if (Test-DockerDesktopRunning) {
+        Write-Host '[OK] Docker Desktop reports running; waiting only for daemon health.' -ForegroundColor Green
+    } else {
+        Write-Step 'Starting Docker Desktop...'
+        $started = $false
+        if (Test-DockerDesktopCli) {
+            try {
+                & $script:DockerCli desktop start --timeout $TimeoutSeconds *> $null
+                $started = ($LASTEXITCODE -eq 0)
+            } catch { $started = $false }
+        }
+        if (-not $started) {
+            if (-not $desktopExe) { $desktopExe = Find-DockerDesktopExecutable }
+            if (-not $desktopExe) { throw 'Docker Desktop is installed but its executable could not be located.' }
+            Start-Process -FilePath $desktopExe | Out-Null
+        }
+    }
+
+    Resolve-NeoLabsDockerContext
+    Write-Step "Waiting for the Docker engine (maximum $TimeoutSeconds seconds)..."
+    $osType = Wait-DockerEngine $TimeoutSeconds
+}
+
+if (-not $osType -and (Test-DockerDesktopRunning) -and (Test-DockerDesktopCli)) {
+    Write-Host '[WARN] Docker Desktop UI is running but its daemon is not answering. Performing one automatic Desktop restart.' -ForegroundColor Yellow
+    try { & $script:DockerCli desktop restart --timeout 120 *> $null } catch { }
+    Resolve-NeoLabsDockerContext
+    $osType = Wait-DockerEngine 90
+}
+
+if (-not $osType) {
+    throw 'Docker Desktop is running but the Docker daemon is not responding. Open Docker Desktop once and review its engine/WSL error banner, then rerun START-NEOLABS-SOC.cmd.'
+}
 
 if ($osType -eq 'windows') {
     Write-Step 'Switching Docker Desktop to Linux containers...'
-    $switched = $false
-    if (Test-DockerDesktopCli) {
-        try {
-            & $script:DockerCli desktop engine use linux *> $null
-            $switched = ($LASTEXITCODE -eq 0)
-        } catch { $switched = $false }
-    }
-    if ($switched) {
-        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-        do {
-            Start-Sleep -Seconds 3
-            $osType = Get-DockerOsType
-            if ($osType -eq 'linux') { break }
-        } while ((Get-Date) -lt $deadline)
-    }
+    if (-not (Test-DockerDesktopCli)) { throw 'Docker Desktop is using Windows containers and this version cannot be switched by the launcher CLI.' }
+    & $script:DockerCli desktop engine use linux *> $null
+    if ($LASTEXITCODE -ne 0) { throw 'Docker Desktop could not switch to Linux containers.' }
+    Resolve-NeoLabsDockerContext
+    $osType = Wait-DockerEngine $TimeoutSeconds
 }
+
 if ($osType -ne 'linux') { throw 'NeoLabs SOC requires Docker Desktop Linux containers on the WSL2 backend.' }
-Write-Host '[OK] Docker Desktop Linux engine is running.' -ForegroundColor Green
+Write-Host '[OK] Docker Desktop Linux engine is healthy.' -ForegroundColor Green
 
 Write-Step "Verifying Docker access inside WSL2 distro '$($defaultDistro.Name)'..."
-$wslDocker = (& wsl.exe --cd $linuxRoot sh -lc 'docker info --format "{{.OSType}}" 2>/dev/null' 2>$null | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or -not $wslDocker -or $wslDocker.Trim().ToLowerInvariant() -ne 'linux') {
-    throw "Docker Desktop is running, but Docker is not available inside '$($defaultDistro.Name)'. In Docker Desktop > Settings > Resources > WSL Integration, enable that distro, Apply, then retry."
+$wslDocker = Wait-WslDocker $defaultDistro.Name $linuxRoot 30
+
+if ($wslDocker -ne 'linux') {
+    Write-Host '[WARN] Docker engine is healthy on Windows but the WSL distro has not attached yet. Refreshing WSL/Docker once.' -ForegroundColor Yellow
+    & wsl.exe --shutdown *> $null
+    Start-Sleep -Seconds 2
+    if (Test-DockerDesktopCli) {
+        try { & $script:DockerCli desktop restart --timeout 120 *> $null } catch { }
+    } else {
+        if (-not $desktopExe) { $desktopExe = Find-DockerDesktopExecutable }
+        if ($desktopExe) { Start-Process -FilePath $desktopExe | Out-Null }
+    }
+    Resolve-NeoLabsDockerContext
+    $osType = Wait-DockerEngine 90
+    if ($osType -ne 'linux') { throw 'Docker Desktop did not recover its Linux engine after the WSL refresh.' }
+    $wslDocker = Wait-WslDocker $defaultDistro.Name $linuxRoot 60
 }
+
+if ($wslDocker -ne 'linux') {
+    throw "Docker Desktop Linux engine is healthy, but Docker is not exposed inside '$($defaultDistro.Name)'. Confirm Docker Desktop > Settings > Resources > WSL Integration has that distro enabled, Apply, then rerun."
+}
+
 Write-Host '[OK] Docker is reachable from the WSL2 environment used by NeoLabs.' -ForegroundColor Green
