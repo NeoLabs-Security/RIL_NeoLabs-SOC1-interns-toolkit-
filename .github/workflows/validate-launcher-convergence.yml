@@ -48,8 +48,9 @@ jobs:
           recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
 
-          if linux.count('internal/linux/Repair-NeoLabsRuntime.sh') != 2:  # validate + one runtime invocation
-              raise SystemExit('Linux root launcher must reference AutoFix only for validation and one runtime escalation')
+          runtime_call = 'bash internal/linux/Repair-NeoLabsRuntime.sh || fail'
+          if linux.count(runtime_call) != 1:
+              raise SystemExit('Linux root launcher must have exactly one real AutoFix escalation')
           for forbidden in ('install_docker_ubuntu_debian()', 'start_docker_service()', 'ensure_docker_access()'):
               if forbidden in linux:
                   raise SystemExit('Linux root launcher duplicated native Docker bootstrap logic: ' + forbidden)
