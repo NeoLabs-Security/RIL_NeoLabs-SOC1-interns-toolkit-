@@ -16,6 +16,10 @@ is_wsl() {
   [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease 2>/dev/null
 }
 
+wsl_desktop_fail() {
+  fail "Windows/WSL2 detected, but Docker Desktop integration is not healthy inside this distro. Do not install a second native Docker daemon in WSL. From Windows run START-NEOLABS-SOC.cmd so NeoLabs Windows AutoFix can repair Docker Desktop/WSL integration, then rerun this launcher if needed."
+}
+
 run_root() {
   if (( EUID == 0 )); then
     "$@"
@@ -41,6 +45,9 @@ Normal use:
 First run automatically repairs/checks Ubuntu/Debian prerequisites, Docker Engine + Compose,
 prepares Wazuh, authenticates to NeoLabs and verifies assigned-pod telemetry.
 Subsequent runs reuse the installation and simply start/reconnect/verify Wazuh.
+
+On Windows with WSL2, Docker remains owned by Docker Desktop/Windows AutoFix; this Linux
+launcher never installs or starts a competing native Docker daemon inside WSL.
 EOF
 }
 
@@ -76,9 +83,12 @@ fi
 cd "${ROOT_DIR}"
 
 log "Running automatic Ubuntu/Debian runtime health and repair checks..."
-if (( EUID != 0 )) && is_wsl && [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v wsl.exe >/dev/null 2>&1; then
-  log "WSL detected; running privileged AutoFix through the Windows WSL root bridge (no Linux sudo password required)..."
-  wsl.exe --distribution "$WSL_DISTRO_NAME" --user root -- bash "${ROOT_DIR}/internal/linux/Repair-NeoLabsRuntime.sh" || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+if is_wsl; then
+  log "Windows with WSL2 detected. Keeping Docker owned by Docker Desktop and avoiding a competing native Linux Docker service."
+  command -v docker >/dev/null 2>&1 || wsl_desktop_fail
+  docker compose version >/dev/null 2>&1 || wsl_desktop_fail
+  docker info >/dev/null 2>&1 || wsl_desktop_fail
+  ok "Docker Desktop integration is reachable inside WSL2; native-Linux Docker AutoFix is intentionally skipped."
 else
   bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
 fi
@@ -104,6 +114,7 @@ install_base_packages() {
 }
 
 install_docker_ubuntu_debian() {
+  is_wsl && wsl_desktop_fail
   [[ -r /etc/os-release ]] || fail "Cannot identify this Linux distribution for Docker installation."
   # shellcheck disable=SC1091
   . /etc/os-release
@@ -140,6 +151,9 @@ EOF
 }
 
 start_docker_service() {
+  if is_wsl; then
+    return 0
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     run_root systemctl enable --now docker >/dev/null
   elif command -v service >/dev/null 2>&1; then
@@ -149,7 +163,9 @@ start_docker_service() {
 
 ensure_docker_access() {
   if ! command -v docker >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
+    if is_wsl; then
+      wsl_desktop_fail
+    elif command -v apt-get >/dev/null 2>&1; then
       install_docker_ubuntu_debian
     else
       fail "Docker is not installed. Automatic Docker installation is currently supported on Ubuntu/Debian only."
@@ -157,7 +173,9 @@ ensure_docker_access() {
   fi
 
   if ! docker compose version >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
+    if is_wsl; then
+      wsl_desktop_fail
+    elif command -v apt-get >/dev/null 2>&1; then
       log "Docker Compose v2 is missing; installing a Compose v2 package..."
       run_root apt-get update
       if apt-cache show docker-compose-v2 >/dev/null 2>&1; then
@@ -175,8 +193,12 @@ ensure_docker_access() {
     return 0
   fi
 
-  # If root can reach Docker but this normal user cannot, grant the standard
-  # docker-group access and immediately re-enter the launcher with that group.
+  if is_wsl; then
+    wsl_desktop_fail
+  fi
+
+  # Native Linux only: if root can reach Docker but this normal user cannot,
+  # grant the standard docker-group access and immediately re-enter the launcher.
   if (( EUID != 0 )) && run_root docker info >/dev/null 2>&1; then
     log "Granting the current user access to Docker without requiring sudo on every Wazuh command..."
     run_root groupadd -f docker
