@@ -31,16 +31,31 @@ jobs:
           launcher_text="$(cat ./start-neolabs-soc.sh)"
           grep -q 'dpkg --configure -a' <<<"$repair_text" || { echo 'Linux AutoFix must repair interrupted package configuration.' >&2; exit 1; }
           grep -q 'systemctl restart docker' <<<"$repair_text" || { echo 'Linux AutoFix must include Docker service restart recovery.' >&2; exit 1; }
-          grep -q 'docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' <<<"$repair_text" || { echo 'Linux AutoFix must install the complete Docker Engine/Compose toolchain.' >&2; exit 1; }
+          grep -q 'docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' <<<"$repair_text" || { echo 'Linux AutoFix must install the complete Docker Engine/Compose toolchain on native Linux.' >&2; exit 1; }
           grep -q 'save_diagnostics' <<<"$repair_text" || { echo 'Linux AutoFix must save diagnostics when bounded recovery fails.' >&2; exit 1; }
-          grep -q 'Repair-NeoLabsRuntime.sh' <<<"$launcher_text" || { echo 'Root Linux launcher must run AutoFix before the SOC workflow.' >&2; exit 1; }
+          grep -q 'Repair-NeoLabsRuntime.sh' <<<"$launcher_text" || { echo 'Root Linux launcher must retain native-Linux AutoFix.' >&2; exit 1; }
 
           # Windows interns sometimes enter the Linux launcher from inside WSL.
-          # That path must use the Windows WSL root bridge rather than prompting
-          # them for a separate Linux sudo password.
+          # That path must use Windows' WSL root bridge for privileged package/
+          # kernel commands, but Docker itself must remain owned by Docker Desktop.
           grep -q 'WSL_DISTRO_NAME' <<<"$launcher_text" || { echo 'WSL-aware launcher detection is missing.' >&2; exit 1; }
           grep -q 'wsl.exe --distribution' <<<"$launcher_text" || { echo 'WSL root bridge is missing; Windows interns could be prompted for sudo.' >&2; exit 1; }
-          grep -q 'no Linux sudo password required' <<<"$launcher_text" || { echo 'WSL no-sudo AutoFix contract is missing.' >&2; exit 1; }
+          grep -q 'wsl_desktop_fail' <<<"$launcher_text" || { echo 'WSL Docker Desktop failure path is missing.' >&2; exit 1; }
+          grep -q 'Do not install a second native Docker daemon in WSL' <<<"$launcher_text" || { echo 'WSL must forbid a competing native Docker daemon.' >&2; exit 1; }
+          grep -q 'native-Linux Docker AutoFix is intentionally skipped' <<<"$launcher_text" || { echo 'WSL must skip native-Linux Docker AutoFix when Desktop integration is healthy.' >&2; exit 1; }
+
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          wsl_gate = text.index('Windows with WSL2 detected. Keeping Docker owned by Docker Desktop')
+          native_autofix = text.index('bash internal/linux/Repair-NeoLabsRuntime.sh')
+          native_install = text.index('install_docker_ubuntu_debian()')
+          install_guard = text.index('is_wsl && wsl_desktop_fail', native_install)
+          if not (wsl_gate < native_autofix):
+              raise SystemExit('WSL Docker Desktop gate must be evaluated before native Linux AutoFix')
+          if install_guard < native_install:
+              raise SystemExit('Native Docker installer must be guarded against WSL')
+          PY
 
           # An interrupted Wazuh preparation must be repaired before session/login
           # checks, so large image pulls cannot occur after authentication starts.
