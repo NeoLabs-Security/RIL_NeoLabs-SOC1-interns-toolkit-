@@ -48,12 +48,12 @@ jobs:
           from pathlib import Path
           text = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
           wsl_gate = text.index('Windows with WSL2 detected. Keeping Docker owned by Docker Desktop')
-          native_autofix = text.index('bash internal/linux/Repair-NeoLabsRuntime.sh')
+          native_autofix = text.index('bash internal/linux/Repair-NeoLabsRuntime.sh || fail', wsl_gate)
           native_install = text.index('install_docker_ubuntu_debian()')
           install_guard = text.index('is_wsl && wsl_desktop_fail', native_install)
           if not (wsl_gate < native_autofix):
               raise SystemExit('WSL Docker Desktop gate must be evaluated before native Linux AutoFix')
-          if install_guard < native_install:
+          if not (install_guard > native_install):
               raise SystemExit('Native Docker installer must be guarded against WSL')
           PY
 
