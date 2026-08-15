@@ -1,0 +1,68 @@
+name: Validate SOC runtime recovery
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-recovery-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate recovery shell syntax
+        run: |
+          bash -n wazuh-stack/scripts/start.sh
+          bash -n wazuh-stack/scripts/recover-runtime.sh
+          bash -n start-neolabs-soc.sh
+          bash -n internal/linux/Repair-NeoLabsRuntime.sh
+
+      - name: Guard staged self-healing Wazuh startup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
+          recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
+          compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
+          linux = Path('internal/linux/Repair-NeoLabsRuntime.sh').read_text(encoding='utf-8')
+          windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
+
+          if './scripts/recover-runtime.sh' not in start:
+              raise SystemExit('Wazuh start.sh must route through bounded runtime recovery')
+          if 'docker compose --env-file .env up -d --build' in start:
+              raise SystemExit('start.sh must not return to the old monolithic Compose startup path')
+
+          indexer = recovery.index('Starting the Wazuh indexer first')
+          manager = recovery.index('Starting the Wazuh manager independently')
+          dashboard = recovery.index('Starting the Wazuh dashboard only after manager and indexer health is proven')
+          if not (indexer < manager < dashboard):
+              raise SystemExit('Runtime recovery must prove indexer, then manager, before starting dashboard')
+
+          required = {
+              'manager restart': 'restart wazuh.manager' in recovery,
+              'manager force recreate': '--force-recreate --no-deps wazuh.manager' in recovery,
+              'bounded manager config volume repair': 'docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc"' in recovery,
+              'runtime diagnostics': 'state/runtime-diagnostics/wazuh-runtime-' in recovery,
+              'dashboard force recreate': '--force-recreate --no-deps wazuh.dashboard' in recovery,
+              'collector force recreate': '--force-recreate --no-deps vcc.telemetry.collector' in recovery,
+              'native Ubuntu Docker repair': 'install_docker_engine' in linux and 'restart_docker_service' in linux,
+              'Windows Docker Desktop repair': 'Ensure-DockerLinuxEngine' in windows and 'Ensure-DockerInsideWsl' in windows,
+              'manager has health check': 'wazuh-analysisd is running' in compose,
+          }
+          missing = [name for name, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit('Runtime recovery contract incomplete: ' + ', '.join(missing))
+
+          volume_rm_lines = [line.strip() for line in recovery.splitlines() if 'docker volume rm' in line]
+          if volume_rm_lines != ['docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc" >/dev/null 2>&1 || true']:
+              raise SystemExit('Automatic recovery may only delete the manager configuration volume')
+          for protected in ('wazuh-indexer-data', 'vcc_telemetry', 'secrets/vcc', 'state/enrolment.json'):
+              if any(protected in line for line in volume_rm_lines):
+                  raise SystemExit(f'Protected state must never be deleted by runtime recovery: {protected}')
+          PY
