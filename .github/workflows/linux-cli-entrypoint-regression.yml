@@ -1,0 +1,39 @@
+name: Linux CLI Entry Point Regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  linux-cli-entrypoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Prove module entry point imports from a clean checkout
+        run: python3 -m tools.cli --help >/dev/null
+
+      - name: Prove direct script execution remains import-safe
+        run: python3 tools/cli.py --help >/dev/null
+
+      - name: Ensure Linux launcher uses package-aware CLI invocation
+        run: |
+          bash -n start-neolabs-soc.sh
+          grep -q 'python3 -m tools.cli' start-neolabs-soc.sh
+          if grep -Eq 'python3[[:space:]]+tools/cli\.py' start-neolabs-soc.sh; then
+            echo 'Regression: start-neolabs-soc.sh executes tools/cli.py by file path.' >&2
+            exit 1
+          fi
