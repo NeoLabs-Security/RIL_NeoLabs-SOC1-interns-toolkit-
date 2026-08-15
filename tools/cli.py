@@ -7,6 +7,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Support both the installed/module entry point and direct execution from a
+# repository checkout. When Python executes `tools/cli.py` directly, sys.path[0]
+# is the tools directory, so the repository root must be added before importing
+# the `tools` package. The supported launchers use `python -m tools.cli`, but the
+# direct path remains safe for diagnostics and regression testing.
+if __package__ in {None, ""}:
+    repo_root = str(Path(__file__).resolve().parents[1])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+
 from tools import neolabs as core
 
 
