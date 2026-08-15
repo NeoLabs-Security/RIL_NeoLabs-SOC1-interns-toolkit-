@@ -33,7 +33,7 @@ jobs:
           first_test = launcher.index('Checking whether the existing Windows/WSL2/Docker runtime is already healthy')
           primary_repair = launcher.index('Running automatic Windows/WSL2/Docker health and repair checks')
           before_backend = launcher.index('Confirming the real Linux engine before recycling anything')
-          backend_recovery = launcher.index('Recover-DockerDesktopBackend.ps1', launcher.index('Confirming the real Linux engine before recycling anything'))
+          backend_recovery = launcher.index('%NEOLABS_BACKEND_RECOVERY_PS1%', before_backend)
           if not (first_test < primary_repair < before_backend < backend_recovery):
               raise SystemExit('Windows launcher must positively confirm runtime before repair escalation')
 
