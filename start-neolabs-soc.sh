@@ -12,9 +12,18 @@ ok() { printf '[OK] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
 fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
 
+is_wsl() {
+  [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease 2>/dev/null
+}
+
 run_root() {
   if (( EUID == 0 )); then
     "$@"
+  elif is_wsl && [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v wsl.exe >/dev/null 2>&1; then
+    # Windows interns should not need to remember a separate Linux sudo password.
+    # Ask the Windows WSL host to run only this privileged command as root inside
+    # the same distro, while the overall launcher remains the normal intern user.
+    wsl.exe --distribution "$WSL_DISTRO_NAME" --user root -- "$@"
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
   else
@@ -61,13 +70,18 @@ if (( VALIDATE_ONLY )); then
 fi
 
 if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-  fail "Do not run the whole launcher with sudo. Run it as your normal Linux user; the launcher uses sudo only for the few OS-level installation/kernel steps that require it."
+  fail "Do not run the whole launcher with sudo. Run it as your normal Linux user; the launcher uses elevated privileges only for the few OS-level installation/kernel steps that require it."
 fi
 
 cd "${ROOT_DIR}"
 
 log "Running automatic Ubuntu/Debian runtime health and repair checks..."
-bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+if (( EUID != 0 )) && is_wsl && [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v wsl.exe >/dev/null 2>&1; then
+  log "WSL detected; running privileged AutoFix through the Windows WSL root bridge (no Linux sudo password required)..."
+  wsl.exe --distribution "$WSL_DISTRO_NAME" --user root -- bash "${ROOT_DIR}/internal/linux/Repair-NeoLabsRuntime.sh" || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+else
+  bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+fi
 
 install_base_packages() {
   local missing=0
@@ -228,11 +242,33 @@ if [[ ! -f wazuh-stack/.env ]]; then
   bash wazuh-stack/scripts/generate-local-secrets.sh || fail "Could not generate local Wazuh credentials."
 fi
 
-if (( first_run )) || [[ ! -f wazuh-stack/generated/config/wazuh_cluster/wazuh_manager.conf ]]; then
-  log "Preparing the pinned Wazuh stack. The first run can take several minutes while images/configuration are downloaded..."
+generated_required_paths=(
+  wazuh-stack/generated/config/wazuh_cluster/wazuh_manager.conf
+  wazuh-stack/generated/config/wazuh_indexer/internal_users.yml
+  wazuh-stack/generated/config/wazuh_indexer_ssl_certs/root-ca.pem
+  wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.indexer.pem
+  wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.manager.pem
+  wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem
+)
+missing_generated=()
+for path in "${generated_required_paths[@]}"; do
+  [[ -f "$path" ]] || missing_generated+=("$path")
+done
+
+if (( first_run )) || (( ${#missing_generated[@]} > 0 )); then
+  if (( first_run == 0 )) && (( ${#missing_generated[@]} > 0 )); then
+    warn "Existing Wazuh preparation is incomplete; repairing all required certificates/configuration before authentication."
+    for path in "${missing_generated[@]}"; do
+      warn "  missing: $path"
+    done
+  fi
+  log "Preparing the pinned Wazuh stack before NeoLabs login/connect. Required image downloads happen now so authentication is not left waiting behind a long Wazuh pull..."
   bash wazuh-stack/scripts/prepare-stack.sh || fail "Wazuh stack preparation failed."
+  for path in "${generated_required_paths[@]}"; do
+    [[ -f "$path" ]] || fail "Wazuh preparation completed but a required generated file is still missing: $path"
+  done
 else
-  ok "Existing Wazuh installation/configuration found; it will be reused."
+  ok "Existing complete Wazuh installation/configuration found; it will be reused."
 fi
 
 export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
