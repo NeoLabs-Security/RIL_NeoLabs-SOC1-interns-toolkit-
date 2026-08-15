@@ -18,11 +18,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Verify clean-checkout Python entry paths
+      - name: Verify clean-checkout Python entry paths and Linux AutoFix contract
         run: |
           python3 -m tools.cli --help >/dev/null
           python3 tools/cli.py --help >/dev/null
+          bash -n ./start-neolabs-soc.sh
+          bash -n ./internal/linux/Repair-NeoLabsRuntime.sh
+          bash ./internal/linux/Repair-NeoLabsRuntime.sh --validate-only
           bash ./start-neolabs-soc.sh --validate-only
+
+          repair_text="$(cat ./internal/linux/Repair-NeoLabsRuntime.sh)"
+          launcher_text="$(cat ./start-neolabs-soc.sh)"
+          grep -q 'dpkg --configure -a' <<<"$repair_text" || { echo 'Linux AutoFix must repair interrupted package configuration.' >&2; exit 1; }
+          grep -q 'systemctl restart docker' <<<"$repair_text" || { echo 'Linux AutoFix must include Docker service restart recovery.' >&2; exit 1; }
+          grep -q 'docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin' <<<"$repair_text" || { echo 'Linux AutoFix must install the complete Docker Engine/Compose toolchain.' >&2; exit 1; }
+          grep -q 'save_diagnostics' <<<"$repair_text" || { echo 'Linux AutoFix must save diagnostics when bounded recovery fails.' >&2; exit 1; }
+          grep -q 'Repair-NeoLabsRuntime.sh' <<<"$launcher_text" || { echo 'Root Linux launcher must run AutoFix before the SOC workflow.' >&2; exit 1; }
 
   windows-cli-invocation-contract:
     runs-on: windows-latest
