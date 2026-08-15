@@ -7,6 +7,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+# When this file is executed directly (``python3 tools/cli.py``), Python puts
+# the tools/ directory rather than the repository root on sys.path. Add the
+# repository root only for that direct-script compatibility path so the same
+# ``tools`` package import works both before and after editable installation.
+if __package__ in {None, ""}:
+    repository_root = str(Path(__file__).resolve().parents[1])
+    if repository_root not in sys.path:
+        sys.path.insert(0, repository_root)
+
 from tools import neolabs as core
 
 
