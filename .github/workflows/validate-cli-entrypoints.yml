@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Windows launcher contracts
+      - name: Verify Windows launcher contracts from real-machine regressions
         shell: powershell
         run: |
           $socPath = '.\internal\windows\Start-NeoLabsSOC.ps1'
@@ -52,44 +52,42 @@ jobs:
           $repairText = Get-Content $repairPath -Raw
           $cmdText = Get-Content $cmdPath -Raw
 
-          if ($socText -notmatch 'python3\s+-m\s+tools\.cli') {
-            throw 'Windows launcher must invoke the NeoLabs CLI as: python3 -m tools.cli'
-          }
-          if ($socText -match 'python3\s+tools[/\\]cli\.py') {
-            throw 'Windows launcher must not invoke tools/cli.py directly.'
-          }
-          if ($socText -notmatch "Require-RepoFile 'tools\\__init__\.py'") {
-            throw 'Windows launcher must verify the tools package marker exists.'
-          }
-          if ($dockerText -notmatch "desktop status") {
-            throw 'Docker bootstrap must check Docker Desktop status.'
-          }
-          if ($dockerText -notmatch "desktop-linux") {
-            throw 'Docker bootstrap must prefer the Docker Desktop Linux context.'
-          }
-          if ($dockerText -notmatch "DOCKER_CONTEXT") {
-            throw 'Docker bootstrap must scope the Docker Desktop context to the NeoLabs process.'
-          }
-          if ($dockerText -notmatch "Wait-WslDocker") {
-            throw 'Docker bootstrap must verify Docker from inside the selected WSL2 distro.'
-          }
-          if ($repairText -notmatch 'wsl\.exe\s+--update') {
-            throw 'Windows AutoFix must be able to update WSL automatically.'
-          }
-          if ($repairText -notmatch 'desktop\s+update') {
-            throw 'Windows AutoFix must include a bounded Docker Desktop update recovery path.'
-          }
-          if ($repairText -notmatch 'Save-RuntimeDiagnostics') {
-            throw 'Windows AutoFix must save local diagnostics when bounded recovery fails.'
-          }
-          if ($repairText -notmatch 'MinimumWslVersion') {
-            throw 'Windows AutoFix must enforce the Docker-supported minimum WSL runtime.'
-          }
-          if ($cmdText -notmatch 'Repair-NeoLabsRuntime\.ps1') {
-            throw 'Root Windows launcher must run AutoFix before the SOC launcher.'
+          if ($socText -notmatch 'python3\s+-m\s+tools\.cli') { throw 'Windows launcher must invoke python3 -m tools.cli.' }
+          if ($socText -match 'python3\s+tools[/\\]cli\.py') { throw 'Windows launcher must not invoke tools/cli.py directly.' }
+          if ($socText -notmatch "Require-RepoFile 'tools\\__init__\.py'") { throw 'Windows launcher must verify the tools package marker.' }
+
+          # Root AutoFix is authoritative. A second Docker bootstrap in the SOC
+          # layer can tear down a runtime that AutoFix just made healthy.
+          if ($socText -match 'Start-NeoLabsDocker\.ps1') { throw 'SOC layer must not run the legacy Docker bootstrap after root AutoFix.' }
+          if ($socText -notmatch 'Assert-DockerStillAvailable') { throw 'SOC layer must verify Docker remained reachable after AutoFix.' }
+
+          # Windows must proactively detect the same interrupted Wazuh preparation
+          # that caused the missing root-ca.pem failure on Linux/WSL interns.
+          foreach ($required in @('root-ca\.pem','wazuh\.indexer\.pem','wazuh\.manager\.pem','wazuh\.dashboard\.pem','internal_users\.yml')) {
+            if ($socText -notmatch $required) { throw "Windows Wazuh atomic preparation check is missing: $required" }
           }
 
-      - name: Validate Windows PowerShell parsers and root contract
+          # Keep the older bootstrap parseable for mentor/compatibility use, even
+          # though normal student startup no longer invokes it twice.
+          if ($dockerText -notmatch 'desktop-linux') { throw 'Docker helper must retain Linux context support.' }
+          if ($dockerText -notmatch 'Wait-WslDocker') { throw 'Docker helper must retain WSL verification.' }
+
+          # Real-machine regression guards: current WSL + old Docker Desktop can
+          # create a broken user-distro proxy; and Desktop may be healthy on
+          # Windows while the selected WSL distro is not explicitly integrated.
+          if ($repairText -notmatch "MinimumDockerDesktopVersion\s*=\s*\[version\]'4\.83\.0'") { throw 'Windows AutoFix must require Docker Desktop 4.83.0+.' }
+          foreach ($required in @('settings-store\.json','enableIntegrationWithDefaultWslDistro','integratedWslDistros','Set-DockerWslIntegration','SelfTest')) {
+            if ($repairText -notmatch $required) { throw "Windows WSL integration repair contract is missing: $required" }
+          }
+          if ($repairText -notmatch 'desktop\s+update') { throw 'Windows AutoFix must include Docker Desktop update recovery.' }
+          if ($repairText -notmatch 'wsl\.exe\s+--update') { throw 'Windows AutoFix must retain bounded WSL update recovery.' }
+          if ($repairText -notmatch 'Diagnostic') { throw 'Windows AutoFix must save useful diagnostics on bounded failure.' }
+
+          $repairIndex = $cmdText.IndexOf('Repair-NeoLabsRuntime.ps1')
+          $startIndex = $cmdText.IndexOf('Start-NeoLabsSOC.ps1')
+          if ($repairIndex -lt 0 -or $startIndex -lt 0 -or $repairIndex -gt $startIndex) { throw 'Root CMD must reference AutoFix before the SOC launcher.' }
+
+      - name: Validate Windows PowerShell parsers and self-tests
         shell: powershell
         run: |
           foreach ($path in @('.\internal\windows\Start-NeoLabsSOC.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Repair-NeoLabsRuntime.ps1')) {
@@ -97,9 +95,13 @@ jobs:
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) {
-              $errors | Format-List | Out-String | Write-Error
+              foreach ($parseError in $errors) {
+                Write-Error ("{0}:{1}:{2}: {3}" -f $path, $parseError.Extent.StartLineNumber, $parseError.Extent.StartColumnNumber, $parseError.Message)
+              }
               exit 1
             }
           }
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\internal\windows\Repair-NeoLabsRuntime.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmd /c START-NEOLABS-SOC.cmd -ValidateOnly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -7,7 +7,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$WindowsRoot = $PSScriptRoot
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $GatewayUrl = 'https://pg1wb0sklb.execute-api.us-east-1.amazonaws.com'
 $script:LinuxRoot = $null
@@ -56,9 +55,6 @@ fi
         if ($LASTEXITCODE -ne 0) { throw 'Could not install the required Linux packages inside WSL2.' }
     }
 
-    # The indexer requires this kernel setting. On Windows we can make the WSL
-    # change through the WSL root account rather than asking the student to guess
-    # where sudo belongs in an internal setup script.
     $sysctl = @'
 set -e
 current="$(cat /proc/sys/vm/max_map_count 2>/dev/null || echo 0)"
@@ -69,8 +65,14 @@ fi
     & wsl.exe -u root bash -lc $sysctl
     if ($LASTEXITCODE -ne 0) { throw 'Could not configure vm.max_map_count for the Wazuh indexer.' }
 
-    # A Windows checkout can lose executable bits even when LF endings are correct.
     Invoke-WslBash 'find wazuh-stack/scripts -type f -name "*.sh" -exec chmod u+x {} +; chmod u+x start-neolabs-soc.sh 2>/dev/null || true' | Out-Null
+}
+function Assert-DockerStillAvailable {
+    $dockerType = (& wsl.exe --cd $script:LinuxRoot --exec sh -lc 'docker info --format "{{.OSType}}" 2>/dev/null' 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or -not $dockerType -or $dockerType.Trim().ToLowerInvariant() -ne 'linux') {
+        throw 'Windows AutoFix completed, but Docker is no longer available inside WSL2. Rerun START-NEOLABS-SOC.cmd so the root AutoFix can recover the runtime.'
+    }
+    Write-Host '[OK] Docker remains reachable inside the NeoLabs WSL2 environment.' -ForegroundColor Green
 }
 function Get-WazuhAdminPassword {
     $password = (& wsl.exe --cd $script:LinuxRoot bash -lc 'source wazuh-stack/.env >/dev/null 2>&1; printf "%s" "${WAZUH_INDEXER_PASSWORD:-}"' 2>$null | Select-Object -First 1)
@@ -88,7 +90,6 @@ function Copy-SecretToClipboard([string]$Secret) {
     throw 'Windows clipboard support is unavailable.'
 }
 
-$dockerBootstrap = Join-Path $WindowsRoot 'Start-NeoLabsDocker.ps1'
 Require-RepoFile 'tools\cli.py' | Out-Null
 Require-RepoFile 'tools\__init__.py' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\compatibility-check.sh' | Out-Null
@@ -98,12 +99,12 @@ Require-RepoFile 'wazuh-stack\scripts\health-check.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\verify-telemetry-pipeline.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\repair-telemetry-pipeline.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\telemetry-freshness.sh' | Out-Null
-if (-not (Test-Path -LiteralPath $dockerBootstrap -PathType Leaf)) { throw 'Internal Docker bootstrap is missing.' }
 
 if ($ValidateOnly) {
     Write-Host '[OK] Root Windows SOC launcher contract is valid.'
-    Write-Host '[OK] One entry point owns WSL/Docker prerequisites, first-run Wazuh preparation, NeoLabs authentication, telemetry verification and dashboard startup.'
-    Write-Host '[OK] NeoLabs CLI is invoked as the tools.cli Python module to avoid script import-path failures.'
+    Write-Host '[OK] START-NEOLABS-SOC.cmd owns Windows/WSL2/Docker AutoFix; this SOC layer does not run a second competing Docker bootstrap.'
+    Write-Host '[OK] NeoLabs CLI is invoked as the tools.cli Python module.'
+    Write-Host '[OK] Wazuh generated configuration is checked as an atomic certificate/configuration set.'
     exit 0
 }
 
@@ -114,16 +115,13 @@ Write-Host '==============================================' -ForegroundColor Dar
 Write-Host ''
 
 if ($Action -eq 'docker') {
-    & $dockerBootstrap -ToolkitRoot $Root -TimeoutSeconds 180
-    exit $LASTEXITCODE
+    Write-Host '[OK] Windows/WSL2/Docker AutoFix completed successfully.' -ForegroundColor Green
+    exit 0
 }
-
-Write-Step 'Preparing the Windows/WSL2/Docker runtime...'
-& $dockerBootstrap -ToolkitRoot $Root -TimeoutSeconds 180
-if ($LASTEXITCODE -ne 0) { throw 'Docker/WSL2 preparation failed.' }
 
 $script:LinuxRoot = Get-LinuxRoot
 Ensure-WslDependencies
+Assert-DockerStillAvailable
 
 if ($Action -eq 'login') {
     Invoke-NeoLabs @('login')
@@ -150,14 +148,36 @@ if ($firstRun) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate the private local Wazuh configuration.' }
 }
 
-& wsl.exe --cd $script:LinuxRoot test -f wazuh-stack/generated/config/wazuh_cluster/wazuh_manager.conf
-$needsPreparation = ($LASTEXITCODE -ne 0)
-if ($firstRun -or $needsPreparation) {
-    Write-Step 'Preparing the pinned Wazuh stack. The first run can take several minutes while images/configuration are downloaded...'
+$generatedRequired = @(
+    'wazuh-stack/generated/config/wazuh_cluster/wazuh_manager.conf',
+    'wazuh-stack/generated/config/wazuh_indexer/internal_users.yml',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/root-ca.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.indexer.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.manager.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem'
+)
+$missingGenerated = @()
+foreach ($path in $generatedRequired) {
+    & wsl.exe --cd $script:LinuxRoot test -f $path
+    if ($LASTEXITCODE -ne 0) { $missingGenerated += $path }
+}
+
+$needsPreparation = $firstRun -or ($missingGenerated.Count -gt 0)
+if ($needsPreparation) {
+    if ($missingGenerated.Count -gt 0 -and -not $firstRun) {
+        Write-Host '[WARN] Existing Wazuh preparation is incomplete; repairing certificates/configuration automatically.' -ForegroundColor Yellow
+        foreach ($path in $missingGenerated) { Write-Host "       missing: $path" -ForegroundColor DarkYellow }
+    }
+    Write-Step 'Preparing the pinned Wazuh stack. The first preparation can take several minutes while images/configuration are downloaded...'
     & wsl.exe --cd $script:LinuxRoot bash wazuh-stack/scripts/prepare-stack.sh
     if ($LASTEXITCODE -ne 0) { throw 'Wazuh stack preparation failed.' }
+
+    foreach ($path in $generatedRequired) {
+        & wsl.exe --cd $script:LinuxRoot test -f $path
+        if ($LASTEXITCODE -ne 0) { throw "Wazuh preparation completed but a required generated file is still missing: $path" }
+    }
 } else {
-    Write-Host '[OK] Existing Wazuh installation/configuration found; it will be reused.' -ForegroundColor Green
+    Write-Host '[OK] Existing complete Wazuh installation/configuration found; it will be reused.' -ForegroundColor Green
 }
 
 $needsLogin = $false

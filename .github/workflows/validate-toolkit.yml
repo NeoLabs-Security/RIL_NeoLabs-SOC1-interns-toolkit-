@@ -60,7 +60,11 @@ jobs:
           present = [p for p in legacy if Path(p).exists()]
           if present:
               raise SystemExit('Legacy helper files must not clutter repository root: ' + ', '.join(present))
-          for path in ('internal/windows/Start-NeoLabsSOC.ps1','internal/windows/Start-NeoLabsDocker.ps1'):
+          for path in (
+              'internal/windows/Repair-NeoLabsRuntime.ps1',
+              'internal/windows/Start-NeoLabsSOC.ps1',
+              'internal/windows/Start-NeoLabsDocker.ps1',
+          ):
               if not Path(path).is_file():
                   raise SystemExit(f'Missing internal Windows implementation file: {path}')
           PY
@@ -82,6 +86,8 @@ jobs:
 
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
+          root_cmd = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          windows_repair = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           windows_launcher = Path('internal/windows/Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
           docker_bootstrap = Path('internal/windows/Start-NeoLabsDocker.ps1').read_text(encoding='utf-8')
           linux_launcher = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
@@ -100,16 +106,16 @@ jobs:
               'pod field verification': 'data.pod_id' in verifier,
               'rule-engine verification': 'wazuh-logtest' in verifier,
               'bounded local repair': 'replayed-objects.json' in repair,
-              'Windows launcher invokes internal Docker bootstrap': 'Start-NeoLabsDocker.ps1' in windows_launcher,
+              'Windows root invokes runtime AutoFix': 'Repair-NeoLabsRuntime.ps1' in root_cmd,
+              'Windows AutoFix checks physical host': 'Assert-PhysicalWindowsWorkstation' in windows_repair and 'Win32_OperatingSystem' in windows_repair,
+              'Windows AutoFix enforces Docker WSL proxy fix floor': "MinimumDockerDesktopVersion = [version]'4.83.0'" in windows_repair,
+              'Windows AutoFix explicitly repairs WSL integration': 'Set-DockerWslIntegration' in windows_repair and 'integratedWslDistros' in windows_repair,
+              'Windows SOC layer avoids duplicate Docker bootstrap': 'Start-NeoLabsDocker.ps1' not in windows_launcher,
               'Windows launcher installs WSL packages as root': 'apt-get install' in windows_launcher and 'wsl.exe -u root' in windows_launcher,
               'Windows launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in windows_launcher,
-              'Docker helper starts Desktop': 'desktop start' in docker_bootstrap or 'Start-Process -FilePath $desktopExe' in docker_bootstrap,
-              'Docker helper checks WSL2': '--set-default-version 2' in docker_bootstrap and 'Get-DefaultWslDistribution' in docker_bootstrap,
-              'Docker helper requires Linux engine': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
-              'Docker helper verifies WSL integration': 'docker info --format' in docker_bootstrap and 'WSL Integration' in docker_bootstrap,
-              'Docker helper detects Windows Server': 'Win32_OperatingSystem' in docker_bootstrap and 'IsWindowsServer' in docker_bootstrap,
-              'Docker helper detects Windows VM VPS': 'Win32_ComputerSystem' in docker_bootstrap and 'IsVirtualMachine' in docker_bootstrap and 'Stop-UnsupportedWindowsPlatform' in docker_bootstrap,
-              'Docker helper directs VPS to Linux launcher': 'bash start-neolabs-soc.sh' in docker_bootstrap and 'Ubuntu' in docker_bootstrap,
+              'Windows launcher repairs incomplete Wazuh certificates': 'root-ca.pem' in windows_launcher and 'wazuh.indexer.pem' in windows_launcher and 'wazuh.dashboard.pem' in windows_launcher,
+              'Docker mentor helper retains Linux engine support': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
+              'Docker mentor helper retains WSL verification': 'Wait-WslDocker' in docker_bootstrap,
               'Linux launcher uses controlled sudo/root helper': 'run_root()' in linux_launcher and 'sudo' in linux_launcher,
               'Linux launcher installs official Docker packages': 'docker-ce' in linux_launcher and 'docker-compose-plugin' in linux_launcher,
               'Linux launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in linux_launcher,
@@ -251,24 +257,28 @@ jobs:
       - name: Validate internal Windows PowerShell syntax
         shell: powershell
         run: |
-          foreach ($path in '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Start-NeoLabsSOC.ps1') {
+          foreach ($path in '.\internal\windows\Repair-NeoLabsRuntime.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Start-NeoLabsSOC.ps1') {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
           }
 
-      - name: Validate Windows platform guard contract
+      - name: Validate Windows platform and AutoFix guard contract
         shell: powershell
         run: |
-          $text = Get-Content .\internal\windows\Start-NeoLabsDocker.ps1 -Raw
-          foreach ($required in @('Win32_OperatingSystem','Win32_ComputerSystem','IsWindowsServer','IsVirtualMachine','Stop-UnsupportedWindowsPlatform','bash start-neolabs-soc.sh')) {
-            if ($text -notmatch [regex]::Escape($required)) { throw "Windows platform guard is missing: $required" }
+          $repairText = Get-Content .\internal\windows\Repair-NeoLabsRuntime.ps1 -Raw
+          foreach ($required in @('Win32_OperatingSystem','Win32_ComputerSystem','Assert-PhysicalWindowsWorkstation','physical Windows 10/11 workstation','Ubuntu/Debian directly','MinimumDockerDesktopVersion','Set-DockerWslIntegration')) {
+            if ($repairText -notmatch [regex]::Escape($required)) { throw "Windows AutoFix/platform guard is missing: $required" }
           }
 
-      - name: Validate root CMD routes to internal implementation
+      - name: Validate root CMD routes AutoFix before SOC implementation
         shell: powershell
         run: |
           $text = Get-Content .\START-NEOLABS-SOC.cmd -Raw
-          if ($text -notmatch 'internal\\windows\\Start-NeoLabsSOC.ps1') { throw 'Root CMD does not route to the internal Windows launcher' }
+          $repairIndex = $text.IndexOf('internal\windows\Repair-NeoLabsRuntime.ps1')
+          $socIndex = $text.IndexOf('internal\windows\Start-NeoLabsSOC.ps1')
+          if ($repairIndex -lt 0) { throw 'Root CMD does not route to Windows AutoFix' }
+          if ($socIndex -lt 0) { throw 'Root CMD does not route to the internal Windows SOC launcher' }
+          if ($repairIndex -gt $socIndex) { throw 'Root CMD must invoke AutoFix before the SOC implementation' }
           if (-not (Test-Path .\start-neolabs-soc.sh)) { throw 'Linux root launcher is missing' }
