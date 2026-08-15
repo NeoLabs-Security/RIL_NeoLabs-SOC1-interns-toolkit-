@@ -7,17 +7,21 @@ cd "${ROOT_DIR}"
 ./scripts/preflight.sh
 
 # A previous/interrupted preparation can leave enough generated files for the
-# outer launcher to think the stack is reusable while the TLS certificates are
-# still missing. Treat the generated Wazuh configuration as an atomic set. If
-# any required generated artifact is absent, repair it automatically before
-# attempting to start containers.
+# outer launcher to think the stack is reusable while TLS keys/CA files are
+# still missing. Treat the generated Wazuh configuration as one atomic set.
 generated_required_paths=(
   generated/config/wazuh_cluster/wazuh_manager.conf
   generated/config/wazuh_indexer/internal_users.yml
   generated/config/wazuh_indexer_ssl_certs/root-ca.pem
+  generated/config/wazuh_indexer_ssl_certs/root-ca-manager.pem
+  generated/config/wazuh_indexer_ssl_certs/admin.pem
+  generated/config/wazuh_indexer_ssl_certs/admin-key.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.indexer.pem
+  generated/config/wazuh_indexer_ssl_certs/wazuh.indexer-key.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.manager.pem
+  generated/config/wazuh_indexer_ssl_certs/wazuh.manager-key.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem
+  generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem
 )
 
 needs_preparation=0
@@ -30,13 +34,14 @@ done
 
 if (( needs_preparation )); then
   printf '[NeoLabs] Repairing the generated Wazuh configuration automatically...\n'
-  ./scripts/prepare-stack.sh
+  bash ./scripts/prepare-stack.sh
 fi
 
 required_paths=(
   "${generated_required_paths[@]}"
   config/rules/neolabs_vcc_rules.xml
   dashboard/neolabs-saved-objects.ndjson.template
+  scripts/repair-certificate-permissions.sh
   scripts/recover-runtime.sh
   scripts/configure-index-retention.sh
   scripts/provision-dashboard-objects.sh
@@ -52,6 +57,11 @@ for path in "${required_paths[@]}"; do
   fi
 done
 
+# Repair generator-side permission/ownership drift even on an already prepared
+# workstation. This runs before Compose so bad host-mounted keys cannot trap the
+# manager in an unhealthy restart/recreate loop.
+bash ./scripts/repair-certificate-permissions.sh
+
 docker compose --env-file .env config --quiet
 
 # Start in dependency-safe stages instead of one monolithic `compose up`.
@@ -60,7 +70,7 @@ docker compose --env-file .env config --quiet
 # indexer data, pod telemetry and VCC secrets while doing bounded manager/
 # dashboard/collector repair.
 printf 'Starting Wazuh through the NeoLabs bounded runtime recovery path...\n'
-./scripts/recover-runtime.sh
+bash ./scripts/recover-runtime.sh
 
 printf 'Wazuh services were started. Waiting for final health checks...\n'
 ./scripts/health-check.sh --wait 600
