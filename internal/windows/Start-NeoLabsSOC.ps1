@@ -25,7 +25,7 @@ function Get-LinuxRoot {
     return $value.Trim()
 }
 function Invoke-NeoLabs([string[]]$CliArgs) {
-    & wsl.exe --cd $script:LinuxRoot env "NEOLABS_LAB_BASE_URL=$GatewayUrl" python3 tools/cli.py @CliArgs
+    & wsl.exe --cd $script:LinuxRoot env "NEOLABS_LAB_BASE_URL=$GatewayUrl" python3 -m tools.cli @CliArgs
     $script:NeoLabsExitCode = $LASTEXITCODE
 }
 function Invoke-WslBash([string]$Command, [switch]$AsRoot) {
@@ -90,6 +90,7 @@ function Copy-SecretToClipboard([string]$Secret) {
 
 $dockerBootstrap = Join-Path $WindowsRoot 'Start-NeoLabsDocker.ps1'
 Require-RepoFile 'tools\cli.py' | Out-Null
+Require-RepoFile 'tools\__init__.py' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\compatibility-check.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\generate-local-secrets.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\prepare-stack.sh' | Out-Null
@@ -102,6 +103,7 @@ if (-not (Test-Path -LiteralPath $dockerBootstrap -PathType Leaf)) { throw 'Inte
 if ($ValidateOnly) {
     Write-Host '[OK] Root Windows SOC launcher contract is valid.'
     Write-Host '[OK] One entry point owns WSL/Docker prerequisites, first-run Wazuh preparation, NeoLabs authentication, telemetry verification and dashboard startup.'
+    Write-Host '[OK] NeoLabs CLI is invoked as the tools.cli Python module to avoid script import-path failures.'
     exit 0
 }
 
