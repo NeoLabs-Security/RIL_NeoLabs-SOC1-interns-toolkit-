@@ -95,6 +95,7 @@ Require-RepoFile 'tools\__init__.py' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\compatibility-check.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\generate-local-secrets.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\prepare-stack.sh' | Out-Null
+Require-RepoFile 'wazuh-stack\scripts\repair-certificate-permissions.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\health-check.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\verify-telemetry-pipeline.sh' | Out-Null
 Require-RepoFile 'wazuh-stack\scripts\repair-telemetry-pipeline.sh' | Out-Null
@@ -104,7 +105,7 @@ if ($ValidateOnly) {
     Write-Host '[OK] Root Windows SOC launcher contract is valid.'
     Write-Host '[OK] START-NEOLABS-SOC.cmd owns Windows/WSL2/Docker AutoFix; this SOC layer does not run a second competing Docker bootstrap.'
     Write-Host '[OK] NeoLabs CLI is invoked as the tools.cli Python module.'
-    Write-Host '[OK] Wazuh generated configuration is checked as an atomic certificate/configuration set.'
+    Write-Host '[OK] Wazuh generated configuration includes all consumed TLS certificates/private keys and repairs permissions before authentication.'
     exit 0
 }
 
@@ -152,9 +153,15 @@ $generatedRequired = @(
     'wazuh-stack/generated/config/wazuh_cluster/wazuh_manager.conf',
     'wazuh-stack/generated/config/wazuh_indexer/internal_users.yml',
     'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/root-ca.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/root-ca-manager.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/admin.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/admin-key.pem',
     'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.indexer.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.indexer-key.pem',
     'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.manager.pem',
-    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem'
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.manager-key.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem',
+    'wazuh-stack/generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem'
 )
 $missingGenerated = @()
 foreach ($path in $generatedRequired) {
@@ -179,6 +186,10 @@ if ($needsPreparation) {
 } else {
     Write-Host '[OK] Existing complete Wazuh installation/configuration found; it will be reused.' -ForegroundColor Green
 }
+
+Write-Step 'Verifying/repairing generated Wazuh TLS certificate permissions before authentication...'
+& wsl.exe --cd $script:LinuxRoot bash wazuh-stack/scripts/repair-certificate-permissions.sh
+if ($LASTEXITCODE -ne 0) { throw 'Wazuh TLS certificate/key permissions could not be repaired safely.' }
 
 $needsLogin = $false
 & wsl.exe --cd $script:LinuxRoot bash -lc 'test -f "$HOME/.neolabs/soc/session.json"'
