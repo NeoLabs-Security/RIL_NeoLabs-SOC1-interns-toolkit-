@@ -6,6 +6,7 @@ GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-https://pg1wb0sklb.execute-api.us-east-1.am
 ACTION="start"
 NO_BROWSER=0
 VALIDATE_ONLY=0
+LOCAL_DOCKER_HOST="unix:///var/run/docker.sock"
 
 log() { printf '[NeoLabs] %s\n' "$*"; }
 ok() { printf '[OK] %s\n' "$*"; }
@@ -33,6 +34,56 @@ run_root() {
   else
     fail "This first-run setup needs administrator privileges for OS packages/kernel settings. Install sudo or ask the server administrator to run the prerequisite installation."
   fi
+}
+
+native_docker_local_ostype() {
+  local value=""
+  value="$(env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  [[ "$value" == "linux" ]] || return 1
+  printf '%s\n' "$value"
+}
+
+native_docker_current_ostype() {
+  local value=""
+  value="$(docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  [[ "$value" == "linux" ]] || return 1
+  printf '%s\n' "$value"
+}
+
+root_native_docker_healthy() {
+  local value=""
+  if (( EUID == 0 )); then
+    value="$(env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  else
+    value="$(run_root env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  fi
+  [[ "$value" == "linux" ]]
+}
+
+select_native_docker_endpoint() {
+  is_wsl && return 1
+  command -v docker >/dev/null 2>&1 || return 1
+
+  # Standard Ubuntu/Debian Docker Engine should be local. Probe the real local
+  # socket first so a stale/remote DOCKER_CONTEXT or DOCKER_HOST cannot make a
+  # healthy server look dead or accidentally run the intern stack elsewhere.
+  if [[ -S /var/run/docker.sock ]]; then
+    if [[ "$(native_docker_local_ostype 2>/dev/null || true)" == "linux" ]]; then
+      if [[ "${DOCKER_HOST:-}" != "$LOCAL_DOCKER_HOST" || -n "${DOCKER_CONTEXT:-}" ]]; then
+        warn "Ignoring a stale/custom Docker context for this NeoLabs run; using the healthy local Ubuntu Docker Engine."
+      fi
+      unset DOCKER_CONTEXT
+      export DOCKER_HOST="$LOCAL_DOCKER_HOST"
+      return 0
+    fi
+    # Socket exists but this user cannot prove it yet. Do not accept an unrelated
+    # remote context as readiness; AutoFix will check root access and repair group membership.
+    return 1
+  fi
+
+  # Preserve valid rootless/custom local Docker installations when no system
+  # socket exists and the caller's engine is genuinely reachable.
+  [[ "$(native_docker_current_ostype 2>/dev/null || true)" == "linux" ]]
 }
 
 usage() {
@@ -69,6 +120,7 @@ if (( VALIDATE_ONLY )); then
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/generate-local-secrets.sh" ]] || fail "Wazuh secret generator is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/prepare-stack.sh" ]] || fail "Wazuh prepare script is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/verify-telemetry-pipeline.sh" ]] || fail "Wazuh telemetry verifier is missing"
+  [[ "$LOCAL_DOCKER_HOST" == "unix:///var/run/docker.sock" ]] || fail "Native Docker endpoint contract changed unexpectedly"
   bash internal/linux/Repair-NeoLabsRuntime.sh --validate-only >/dev/null
   python3 -m tools.cli --help >/dev/null 2>&1 || fail "NeoLabs CLI cannot import from a clean checkout"
   python3 tools/cli.py --help >/dev/null 2>&1 || fail "Direct NeoLabs CLI compatibility path is broken"
@@ -82,7 +134,7 @@ fi
 
 cd "${ROOT_DIR}"
 
-log "Running automatic Ubuntu/Debian runtime health and repair checks..."
+log "Checking the Ubuntu/Debian Docker runtime before applying any repair..."
 if is_wsl; then
   log "Windows with WSL2 detected. Keeping Docker owned by Docker Desktop and avoiding a competing native Linux Docker service."
   command -v docker >/dev/null 2>&1 || wsl_desktop_fail
@@ -90,7 +142,13 @@ if is_wsl; then
   docker info >/dev/null 2>&1 || wsl_desktop_fail
   ok "Docker Desktop integration is reachable inside WSL2; native-Linux Docker AutoFix is intentionally skipped."
 else
-  bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && select_native_docker_endpoint; then
+    ok "Existing native Docker Linux runtime is healthy; skipping unnecessary service/package recovery."
+  else
+    log "Native Docker readiness is not yet proven. Running bounded Ubuntu/Debian AutoFix..."
+    bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
+    select_native_docker_endpoint || true
+  fi
 fi
 
 install_base_packages() {
@@ -189,6 +247,10 @@ ensure_docker_access() {
 
   start_docker_service
 
+  if ! is_wsl && select_native_docker_endpoint; then
+    return 0
+  fi
+
   if docker info >/dev/null 2>&1; then
     return 0
   fi
@@ -197,9 +259,9 @@ ensure_docker_access() {
     wsl_desktop_fail
   fi
 
-  # Native Linux only: if root can reach Docker but this normal user cannot,
-  # grant the standard docker-group access and immediately re-enter the launcher.
-  if (( EUID != 0 )) && run_root docker info >/dev/null 2>&1; then
+  # Native Linux only: if root can reach the actual local Docker socket but this
+  # normal user cannot, grant standard docker-group access and immediately re-enter.
+  if (( EUID != 0 )) && root_native_docker_healthy; then
     log "Granting the current user access to Docker without requiring sudo on every Wazuh command..."
     run_root groupadd -f docker
     run_root usermod -aG docker "${USER}"
@@ -211,7 +273,7 @@ ensure_docker_access() {
     fail "Docker access was granted to ${USER}, but this shell cannot refresh group membership automatically. Log out/in once and rerun ./start-neolabs-soc.sh."
   fi
 
-  fail "Docker is installed but the daemon is not reachable. Check the Docker service and rerun this launcher."
+  fail "Docker is installed but the local daemon is not reachable. NeoLabs already ignored stale Docker contexts and checked the native socket; review the Linux AutoFix diagnostic log."
 }
 
 ensure_kernel_setting() {
