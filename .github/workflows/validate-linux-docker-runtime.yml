@@ -39,7 +39,7 @@ jobs:
               'local socket': 'unix:///var/run/docker.sock' in test,
               'ignore stale context': 'env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST"' in test,
               'compose readiness': 'docker compose version' in test,
-              'kernel readiness': 'vm.max_map_count' in test,
+              'kernel readiness': '/proc/sys/vm/max_map_count' in test and '262144' in test,
           }
           missing = [k for k,v in required_test.items() if not v]
           if missing: raise SystemExit('Linux runtime test incomplete: ' + ', '.join(missing))
