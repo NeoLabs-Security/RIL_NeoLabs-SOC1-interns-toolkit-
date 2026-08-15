@@ -76,7 +76,8 @@
   <rule id="100130" level="7">
     <if_sid>100100</if_sid>
     <field name="event_type">^account_change$</field>
-    <field name="action">^(password_reset|email_change|mfa_change|role_change)$</field>
+    <!-- `action` is a Wazuh static field, so it must use the dedicated rule tag. -->
+    <action type="pcre2">^(password_reset|email_change|mfa_change|role_change)$</action>
     <field name="outcome">^success$</field>
     <description>NeoLabs VCC: Sensitive account change completed for $(user).</description>
     <group>account_change,identity,</group>
@@ -94,7 +95,8 @@
   <rule id="100150" level="9">
     <if_sid>100100</if_sid>
     <field name="event_type">^telemetry_health$</field>
-    <field name="status">^(disconnected|parser_failure|schema_rejected|clock_skew|duplicate_ingestion)$</field>
+    <!-- `status` is also a Wazuh static field. -->
+    <status type="pcre2">^(disconnected|parser_failure|schema_rejected|clock_skew|duplicate_ingestion)$</status>
     <description>NeoLabs VCC: Telemetry quality or availability problem detected.</description>
     <group>telemetry_health,visibility_gap,</group>
   </rule>
