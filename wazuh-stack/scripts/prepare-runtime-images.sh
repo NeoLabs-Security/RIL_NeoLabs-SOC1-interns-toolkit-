@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
 log() { printf '[NeoLabs Wazuh] %s\n' "$*"; }
 ok() { printf '[OK] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*" >&2; }
 
 [[ -f .env ]] || fail 'Missing wazuh-stack/.env.'
 # shellcheck disable=SC1091
@@ -18,6 +19,17 @@ set +a
 docker info >/dev/null 2>&1 || fail 'Docker is not reachable while preparing Wazuh runtime images.'
 docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is unavailable.'
 
+retry() {
+  local attempts="$1"; shift
+  local n=1
+  until "$@"; do
+    if (( n >= attempts )); then return 1; fi
+    warn "Attempt ${n}/${attempts} failed; retrying in $((n * 4)) seconds..."
+    sleep $((n * 4))
+    n=$((n + 1))
+  done
+}
+
 images=(
   "wazuh/wazuh-indexer:${WAZUH_VERSION}"
   "wazuh/wazuh-manager:${WAZUH_VERSION}"
@@ -28,7 +40,7 @@ for image in "${images[@]}"; do
     printf '[OK] Runtime image already present: %s\n' "$image"
   else
     log "Downloading required runtime image before authentication: $image"
-    docker pull "$image"
+    retry 3 docker pull "$image" || fail "Could not download $image after three attempts. Check server internet/DNS access and rerun the root launcher."
   fi
 done
 
@@ -41,7 +53,7 @@ previous="$(cat state/collector-image-fingerprint 2>/dev/null || true)"
 
 if ! docker image inspect neolabs/vcc-telemetry-collector:0.1.0 >/dev/null 2>&1 || [[ "$fingerprint" != "$previous" ]]; then
   log 'Building the NeoLabs telemetry collector before authentication...'
-  docker compose --env-file .env build vcc.telemetry.collector
+  retry 2 docker compose --env-file .env build vcc.telemetry.collector || fail 'Could not build the telemetry collector after two attempts.'
   printf '%s\n' "$fingerprint" > state/collector-image-fingerprint
 else
   ok 'NeoLabs telemetry collector image is already current.'
