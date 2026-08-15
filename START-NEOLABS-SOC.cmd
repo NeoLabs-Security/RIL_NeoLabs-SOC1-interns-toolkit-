@@ -3,11 +3,18 @@ setlocal EnableExtensions EnableDelayedExpansion
 title NeoLabs SOC Level 1
 
 set "NEOLABS_REPAIR_PS1=%~dp0internal\windows\Repair-NeoLabsRuntime.ps1"
+set "NEOLABS_RUNTIME_TEST_PS1=%~dp0internal\windows\Test-NeoLabsDockerRuntime.ps1"
 set "NEOLABS_BACKEND_RECOVERY_PS1=%~dp0internal\windows\Recover-DockerDesktopBackend.ps1"
 set "NEOLABS_START_PS1=%~dp0internal\windows\Start-NeoLabsSOC.ps1"
 
 if not exist "%NEOLABS_REPAIR_PS1%" (
   echo [FAILED] Internal NeoLabs Windows AutoFix helper is missing.
+  echo Pull the latest toolkit and try again.
+  pause
+  exit /b 1
+)
+if not exist "%NEOLABS_RUNTIME_TEST_PS1%" (
+  echo [FAILED] Internal NeoLabs Windows runtime confirmation helper is missing.
   echo Pull the latest toolkit and try again.
   pause
   exit /b 1
@@ -28,29 +35,62 @@ if not exist "%NEOLABS_START_PS1%" (
 if /I "%~1"=="-ValidateOnly" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_REPAIR_PS1%" -ValidateOnly
   if errorlevel 1 exit /b !ERRORLEVEL!
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_TEST_PS1%" -ValidateOnly
+  if errorlevel 1 exit /b !ERRORLEVEL!
   powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_BACKEND_RECOVERY_PS1%" -ValidateOnly
   if errorlevel 1 exit /b !ERRORLEVEL!
   powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_START_PS1%" -ValidateOnly
   exit /b !ERRORLEVEL!
 )
 
-echo [NeoLabs] Running automatic Windows/WSL2/Docker health and repair checks...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_REPAIR_PS1%"
-set "REPAIR_EXIT=!ERRORLEVEL!"
+echo [NeoLabs] Checking whether the existing Windows/WSL2/Docker runtime is already healthy...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_TEST_PS1%"
+set "RUNTIME_TEST_EXIT=!ERRORLEVEL!"
+
+if "!RUNTIME_TEST_EXIT!"=="0" (
+  echo [NeoLabs] Existing Docker Linux runtime is healthy. Skipping unnecessary repair/restart work.
+  set "REPAIR_EXIT=0"
+) else (
+  echo [NeoLabs] Running automatic Windows/WSL2/Docker health and repair checks...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_REPAIR_PS1%"
+  set "REPAIR_EXIT=!ERRORLEVEL!"
+)
 
 if "!REPAIR_EXIT!"=="3010" goto :restart_required
 
 if not "!REPAIR_EXIT!"=="0" (
   echo.
-  echo [NeoLabs] Primary AutoFix found Docker Desktop installed but could not recover its Linux daemon.
-  echo [NeoLabs] Trying one deeper non-destructive Docker Desktop backend/service recycle...
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_BACKEND_RECOVERY_PS1%"
-  set "BACKEND_EXIT=!ERRORLEVEL!"
+  echo [NeoLabs] Primary AutoFix reported Docker unavailable. Confirming the real Linux engine before recycling anything...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_TEST_PS1%"
+  set "RUNTIME_TEST_EXIT=!ERRORLEVEL!"
 
-  if "!BACKEND_EXIT!"=="0" (
-    echo [NeoLabs] Docker backend recovered. Re-running the complete Windows readiness check...
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_REPAIR_PS1%"
-    set "REPAIR_EXIT=!ERRORLEVEL!"
+  if "!RUNTIME_TEST_EXIT!"=="0" (
+    echo [NeoLabs] Docker is actually healthy on Windows and inside WSL2. Ignoring the stale AutoFix failure and continuing safely.
+    set "REPAIR_EXIT=0"
+  ) else (
+    echo [NeoLabs] Docker readiness could not be confirmed. Trying one deeper non-destructive Docker Desktop backend/service recycle...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_BACKEND_RECOVERY_PS1%"
+    set "BACKEND_EXIT=!ERRORLEVEL!"
+
+    if "!BACKEND_EXIT!"=="0" (
+      echo [NeoLabs] Docker backend recovery returned successfully. Verifying the actual runtime before another repair pass...
+      powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_TEST_PS1%"
+      set "RUNTIME_TEST_EXIT=!ERRORLEVEL!"
+
+      if "!RUNTIME_TEST_EXIT!"=="0" (
+        set "REPAIR_EXIT=0"
+      ) else (
+        echo [NeoLabs] Re-running the complete Windows readiness check for any remaining WSL integration repair...
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_REPAIR_PS1%"
+        set "REPAIR_EXIT=!ERRORLEVEL!"
+
+        if not "!REPAIR_EXIT!"=="0" if not "!REPAIR_EXIT!"=="3010" (
+          echo [NeoLabs] Final confirmation: checking whether Docker became healthy despite the AutoFix return code...
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_TEST_PS1%"
+          if "!ERRORLEVEL!"=="0" set "REPAIR_EXIT=0"
+        )
+      )
+    )
   )
 )
 
