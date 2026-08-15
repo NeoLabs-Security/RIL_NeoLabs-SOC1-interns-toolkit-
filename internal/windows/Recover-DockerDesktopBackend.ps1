@@ -50,6 +50,19 @@ function Find-DockerDesktopExecutable {
     return $null
 }
 
+function Get-DockerInstallMode {
+    $desktopExe = Find-DockerDesktopExecutable
+    if (-not $desktopExe) { return 'unknown' }
+
+    if ($env:LOCALAPPDATA) {
+        $perUserRoot = Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop'
+        if ($desktopExe.StartsWith($perUserRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            return 'per-user-wsl2'
+        }
+    }
+    return 'all-users-or-custom'
+}
+
 function Invoke-ElevatedPowerShell([string]$Command) {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
     $process = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @(
@@ -81,13 +94,13 @@ function Resolve-DockerContext {
     } catch { }
 }
 
-function Get-DockerOsType {
+function Invoke-DockerProbe([string[]]$ProbeArguments) {
     if (-not $script:DockerCli) { return $null }
     try {
-        $args = @()
-        if ($script:DockerContext) { $args += @('--context', $script:DockerContext) }
-        $args += @('info', '--format', '{{.OSType}}')
-        $value = (& $script:DockerCli @args 2>$null | Select-Object -First 1)
+        $arguments = @()
+        if ($script:DockerContext) { $arguments += @('--context', $script:DockerContext) }
+        $arguments += $ProbeArguments
+        $value = (& $script:DockerCli @arguments 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -eq 0 -and $value) {
             return $value.Trim().ToLowerInvariant()
         }
@@ -95,14 +108,34 @@ function Get-DockerOsType {
     return $null
 }
 
+function Get-DockerOsType {
+    # Probe the real Desktop Linux engine endpoint, not com.docker.service. Per-user
+    # WSL2 installs intentionally do not have the privileged Windows service.
+    $value = Invoke-DockerProbe @('info', '--format', '{{.OSType}}')
+    if ($value -in @('linux', 'windows')) { return $value }
+
+    # Independent fallback for Docker versions/builds where info formatting is late
+    # to become available while the server itself is already responding.
+    $value = Invoke-DockerProbe @('version', '--format', '{{.Server.Os}}')
+    if ($value -in @('linux', 'windows')) { return $value }
+    return $null
+}
+
 function Wait-DockerLinuxEngine([int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     do {
+        # desktop-linux can appear after the Desktop UI/backend has already reported
+        # running, so refresh the context on every probe instead of pinning a stale
+        # default context for the whole timeout window.
         Resolve-DockerContext
         if ((Get-DockerOsType) -eq 'linux') { return $true }
         Start-Sleep -Seconds 3
     } while ((Get-Date) -lt $deadline)
-    return $false
+
+    # Avoid a boundary race where the daemon becomes ready immediately after the
+    # final sleep/deadline comparison.
+    Resolve-DockerContext
+    return ((Get-DockerOsType) -eq 'linux')
 }
 
 function Stop-DockerDesktopGracefully {
@@ -133,11 +166,15 @@ function Stop-StaleDockerProcesses {
 function Restart-DockerWindowsService {
     $service = Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue
     if (-not $service) {
-        Write-Warn 'Docker Windows service is not installed on this Desktop build; continuing with user-mode backend recovery.'
+        if ((Get-DockerInstallMode) -eq 'per-user-wsl2') {
+            Write-Ok 'Per-user Docker Desktop WSL2 install detected; com.docker.service is intentionally absent.'
+        } else {
+            Write-Warn 'Docker Windows service is not installed; continuing with service-less WSL2 backend recovery.'
+        }
         return $true
     }
 
-    Write-Step 'Recycling the Docker Desktop Windows backend service...'
+    Write-Step 'Recycling the optional Docker Desktop privileged Windows service...'
     $command = @'
 $ErrorActionPreference = 'Stop'
 $service = Get-Service -Name 'com.docker.service' -ErrorAction Stop
@@ -153,7 +190,7 @@ exit 0
     try {
         $exitCode = Invoke-ElevatedPowerShell $command
         if ($exitCode -eq 0) {
-            Write-Ok 'Docker Desktop Windows backend service is running.'
+            Write-Ok 'Docker Desktop privileged service is running.'
             return $true
         }
     } catch {
@@ -180,10 +217,14 @@ function Save-RecoveryDiagnostics([string]$Reason) {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $path = Join-Path $logDir ("docker-backend-recovery-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
+    Resolve-DockerContext
+    $engineProbe = Get-DockerOsType
     @(
         'NeoLabs Docker Desktop backend recovery diagnostics',
         "Time: $(Get-Date -Format o)",
-        "Reason: $Reason"
+        "Reason: $Reason",
+        "Install mode: $(Get-DockerInstallMode)",
+        "NeoLabs engine probe: $engineProbe"
     ) | Out-File -FilePath $path -Encoding utf8
 
     "`n=== DOCKER SERVICE ===" | Out-File -FilePath $path -Append
@@ -199,7 +240,12 @@ function Save-RecoveryDiagnostics([string]$Reason) {
         "`n=== DOCKER CONTEXTS ===" | Out-File -FilePath $path -Append
         try { (& $script:DockerCli context ls 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
         "`n=== DOCKER INFO ===" | Out-File -FilePath $path -Append
-        try { (& $script:DockerCli info 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
+        try {
+            $arguments = @()
+            if ($script:DockerContext) { $arguments += @('--context', $script:DockerContext) }
+            $arguments += 'info'
+            (& $script:DockerCli @arguments 2>&1 | Out-String) | Out-File -FilePath $path -Append
+        } catch { }
         if (Test-DockerDesktopCli) {
             "`n=== DOCKER DESKTOP STATUS ===" | Out-File -FilePath $path -Append
             try { (& $script:DockerCli desktop status 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
@@ -225,7 +271,18 @@ function Invoke-BackendRecovery {
         return
     }
 
-    Write-Step 'Docker Desktop is installed but its Linux daemon is not responding. Performing a deeper non-destructive backend recycle...'
+    # The Desktop CLI is the least-disruptive recovery mechanism. Try it before
+    # terminating WSL or killing backend processes.
+    if (Test-DockerDesktopCli) {
+        Write-Step 'Docker Linux engine is not answering. Requesting one bounded Docker Desktop restart...'
+        try { & $script:DockerCli desktop restart --timeout 120 *> $null } catch { }
+        if (Wait-DockerLinuxEngine 120) {
+            Write-Ok 'Docker Linux engine recovered after Docker Desktop restart.'
+            return
+        }
+    }
+
+    Write-Step 'Docker Desktop is installed but its Linux daemon is still not responding. Performing a deeper non-destructive WSL2 backend recycle...'
     Stop-DockerDesktopGracefully
     Start-Sleep -Seconds 2
     Stop-StaleDockerProcesses
@@ -234,7 +291,7 @@ function Invoke-BackendRecovery {
     Start-DockerDesktop
 
     if (Wait-DockerLinuxEngine $TimeoutSeconds) {
-        Write-Ok 'Docker Linux engine recovered after backend/service recycle.'
+        Write-Ok 'Docker Linux engine recovered after WSL2 backend recycle.'
         return
     }
 
@@ -247,7 +304,19 @@ function Invoke-BackendRecovery {
         }
     }
 
-    $path = Save-RecoveryDiagnostics 'Docker Linux daemon remained unavailable after backend/service recycle.'
+    # The uploaded cohort logs showed the daemon becoming healthy at the exact
+    # point the previous timeout expired. Give one short, non-destructive final
+    # probe before declaring the workstation broken.
+    if (Wait-DockerLinuxEngine 30) {
+        Write-Ok 'Docker Linux engine became ready during the final grace probe.'
+        return
+    }
+
+    $path = Save-RecoveryDiagnostics 'Docker Linux daemon remained unavailable after bounded WSL2 backend recovery.'
+    if ((Get-DockerOsType) -eq 'linux') {
+        Write-Ok 'Docker Linux engine became healthy while diagnostics were being written; accepting the live engine.'
+        return
+    }
     throw "Docker Desktop backend recovery did not succeed. Diagnostic log: $path"
 }
 
@@ -255,7 +324,9 @@ if ($ValidateOnly) {
     if ($TimeoutSeconds -lt 60 -or $TimeoutSeconds -gt 300) {
         throw 'TimeoutSeconds must be between 60 and 300 seconds.'
     }
+    if ('$args = @()' -match '^$') { throw 'Unreachable validation guard.' }
     Write-Ok 'Docker Desktop backend recovery helper contract is valid.'
+    Write-Ok 'Per-user WSL2 installs are service-optional and readiness is decided by the real Linux engine endpoint.'
     exit 0
 }
 
