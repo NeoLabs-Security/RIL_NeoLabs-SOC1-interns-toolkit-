@@ -26,7 +26,7 @@ if /I "%~1"=="-ValidateOnly" (
 )
 
 echo [NeoLabs] Verifying/repairing the Windows runtime through one authoritative state machine...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_PS1%" -ToolkitRoot "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%NEOLABS_RUNTIME_PS1%"
 set "RUNTIME_EXIT=!ERRORLEVEL!"
 
 if "!RUNTIME_EXIT!"=="3010" goto :restart_required
