@@ -46,10 +46,14 @@ for arg in "$@"; do
 done
 
 if (( VALIDATE_ONLY )); then
+  cd "${ROOT_DIR}"
   [[ -f "${ROOT_DIR}/tools/cli.py" ]] || fail "tools/cli.py is missing"
+  [[ -f "${ROOT_DIR}/tools/__init__.py" ]] || fail "tools package marker is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/generate-local-secrets.sh" ]] || fail "Wazuh secret generator is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/prepare-stack.sh" ]] || fail "Wazuh prepare script is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/verify-telemetry-pipeline.sh" ]] || fail "Wazuh telemetry verifier is missing"
+  python3 -m tools.cli --help >/dev/null 2>&1 || fail "NeoLabs CLI cannot import from a clean checkout"
+  python3 tools/cli.py --help >/dev/null 2>&1 || fail "Direct NeoLabs CLI compatibility path is broken"
   ok "Linux one-click SOC launcher contract is valid."
   exit 0
 fi
@@ -198,15 +202,15 @@ chmod u+x start-neolabs-soc.sh
 
 if [[ "$ACTION" == "status" ]]; then
   export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
-  exec python3 tools/cli.py status
+  exec python3 -m tools.cli status
 fi
 if [[ "$ACTION" == "login" ]]; then
   export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
-  exec python3 tools/cli.py login
+  exec python3 -m tools.cli login
 fi
 if [[ "$ACTION" == "doctor" ]]; then
   export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
-  exec python3 tools/cli.py doctor
+  exec python3 -m tools.cli doctor
 fi
 
 log "Checking workstation compatibility..."
@@ -229,23 +233,23 @@ fi
 export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
 if [[ ! -f "${HOME}/.neolabs/soc/session.json" ]]; then
   log "Sign in with your assigned pod number and private NeoLabs Access Code."
-  python3 tools/cli.py login || fail "NeoLabs login failed."
+  python3 -m tools.cli login || fail "NeoLabs login failed."
 else
   log "Checking your saved NeoLabs session..."
-  if ! python3 tools/cli.py status; then
+  if ! python3 -m tools.cli status; then
     warn "Saved session is expired or no longer accepted; requesting a fresh login."
-    python3 tools/cli.py login || fail "NeoLabs login failed."
+    python3 -m tools.cli login || fail "NeoLabs login failed."
   fi
 fi
 
 log "Connecting authorised VCC telemetry and starting Wazuh..."
-python3 tools/cli.py connect || fail "NeoLabs connect/Wazuh startup failed."
+python3 -m tools.cli connect || fail "NeoLabs connect/Wazuh startup failed."
 
 log "Waiting for Wazuh health..."
 bash wazuh-stack/scripts/health-check.sh --wait 600 || fail "Wazuh did not become healthy within the allowed startup period."
 
 log "Confirming current pod/scenario status..."
-python3 tools/cli.py status || fail "Final NeoLabs status check failed."
+python3 -m tools.cli status || fail "Final NeoLabs status check failed."
 
 log "Proving that assigned-pod VCC telemetry is searchable in Wazuh..."
 if ! bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180; then
