@@ -20,7 +20,7 @@ function Require-RepoFile([string]$RelativePath) {
     return $path
 }
 function Get-LinuxRoot {
-    $value = (& wsl.exe wslpath -a $Root 2>$null | Select-Object -First 1)
+    $value = (& wsl.exe --exec wslpath -a $Root 2>$null | Select-Object -First 1)
     if (-not $value) { throw 'Could not translate the SOC toolkit folder into WSL2.' }
     return $value.Trim()
 }
