@@ -56,7 +56,7 @@ jobs:
           if ($socText -match 'python3\s+tools[/\\]cli\.py') { throw 'Windows launcher must not invoke tools/cli.py directly.' }
           if ($socText -notmatch "Require-RepoFile 'tools\\__init__\.py'") { throw 'Windows launcher must verify the tools package marker.' }
 
-          # Root AutoFix is now authoritative. A second Docker bootstrap in the SOC
+          # Root AutoFix is authoritative. A second Docker bootstrap in the SOC
           # layer can tear down a runtime that AutoFix just made healthy.
           if ($socText -match 'Start-NeoLabsDocker\.ps1') { throw 'SOC layer must not run the legacy Docker bootstrap after root AutoFix.' }
           if ($socText -notmatch 'Assert-DockerStillAvailable') { throw 'SOC layer must verify Docker remained reachable after AutoFix.' }
@@ -73,10 +73,10 @@ jobs:
           if ($dockerText -notmatch 'Wait-WslDocker') { throw 'Docker helper must retain WSL verification.' }
 
           # Real-machine regression guards: current WSL + old Docker Desktop can
-          # create a zero-byte user-distro proxy; and new Desktop versions may not
-          # expose Docker in the user distro unless integration is explicit.
+          # create a broken user-distro proxy; and Desktop may be healthy on
+          # Windows while the selected WSL distro is not explicitly integrated.
           if ($repairText -notmatch "MinimumDockerDesktopVersion\s*=\s*\[version\]'4\.83\.0'") { throw 'Windows AutoFix must require Docker Desktop 4.83.0+.' }
-          foreach ($required in @('settings-store\.json','enableIntegrationWithDefaultWslDistro','integratedWslDistros','Set-Integration','SelfTest')) {
+          foreach ($required in @('settings-store\.json','enableIntegrationWithDefaultWslDistro','integratedWslDistros','Set-DockerWslIntegration','SelfTest')) {
             if ($repairText -notmatch $required) { throw "Windows WSL integration repair contract is missing: $required" }
           }
           if ($repairText -notmatch 'desktop\s+update') { throw 'Windows AutoFix must include Docker Desktop update recovery.' }
@@ -95,7 +95,9 @@ jobs:
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) {
-              $errors | Format-List | Out-String | Write-Error
+              foreach ($parseError in $errors) {
+                Write-Error ("{0}:{1}:{2}: {3}" -f $path, $parseError.Extent.StartLineNumber, $parseError.Extent.StartColumnNumber, $parseError.Message)
+              }
               exit 1
             }
           }
