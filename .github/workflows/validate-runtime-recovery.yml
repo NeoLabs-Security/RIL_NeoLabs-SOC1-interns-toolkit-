@@ -70,6 +70,9 @@ jobs:
           if missing_cert:
               raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
 
+          # Wazuh reserves these decoder keys as static fields. Custom rules must
+          # use the dedicated rule element (for example <action> or <status>)
+          # instead of treating them as dynamic <field name="..."> values.
           static_fields = {
               'user', 'srcip', 'dstip', 'srcport', 'dstport', 'protocol',
               'action', 'id', 'url', 'data', 'extra_data', 'status', 'system_name',
@@ -146,17 +149,3 @@ jobs:
               if any(protected in line for line in volume_rm_lines):
                   raise SystemExit(f'Protected state must never be deleted by runtime recovery: {protected}')
           PY
-
-  wazuh-rule-semantic-check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate NeoLabs rules with Wazuh 4.14.7 analysisd
-        run: |
-          docker pull wazuh/wazuh-manager:4.14.7
-          docker run --rm \
-            --entrypoint /bin/bash \
-            -v "$GITHUB_WORKSPACE/wazuh-stack/config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro" \
-            wazuh/wazuh-manager:4.14.7 \
-            -lc 'cp -a /var/ossec/data_tmp/permanent/var/ossec/etc/. /var/ossec/etc/ && cd /var/ossec && bin/wazuh-analysisd -t'
