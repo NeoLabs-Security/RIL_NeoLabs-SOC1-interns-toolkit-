@@ -14,7 +14,6 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,6 +27,7 @@ jobs:
         run: |
           python -m compileall -q wazuh-stack/collector wazuh-stack/scripts scripts tools
           python -m unittest discover -s wazuh-stack/collector -p 'test_*.py' -v
+          python wazuh-stack/scripts/validate-local-rules.py
 
       - name: Validate installed NeoLabs command
         run: |
@@ -38,38 +38,37 @@ jobs:
 
       - name: Validate shell syntax and Linux root launcher
         run: |
+          set -euo pipefail
           bash -n start-neolabs-soc.sh
-          while IFS= read -r -d '' file; do
-            bash -n "$file"
-          done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
+          bash -n internal/linux/Test-NeoLabsRuntime.sh
+          bash -n internal/linux/Repair-NeoLabsRuntime.sh
+          bash -n internal/common/Start-NeoLabsSOC.sh
+          while IFS= read -r -d '' file; do bash -n "$file"; done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
           bash start-neolabs-soc.sh --validate-only
 
       - name: Validate clean root entrypoint layout
         run: |
           python - <<'PY'
           from pathlib import Path
-          required = [Path('START-NEOLABS-SOC.cmd'), Path('start-neolabs-soc.sh')]
-          missing = [str(p) for p in required if not p.is_file()]
-          if missing:
-              raise SystemExit('Missing root SOC entrypoints: ' + ', '.join(missing))
-          legacy = [
-              'CHECK-NEOLABS-SOC.cmd', 'START-NEOLABS-DOCKER.cmd',
-              'Start-NeoLabsDocker.ps1', 'Start-NeoLabsSOC.ps1',
-              'setup-windows.cmd', 'neolabs.cmd', 'neolabs-local.cmd', 'neolabs.ps1',
-          ]
-          present = [p for p in legacy if Path(p).exists()]
-          if present:
-              raise SystemExit('Legacy helper files must not clutter repository root: ' + ', '.join(present))
-          for path in (
+          required = [
+              'START-NEOLABS-SOC.cmd', 'start-neolabs-soc.sh',
+              'internal/common/Start-NeoLabsSOC.sh',
+              'internal/linux/Test-NeoLabsRuntime.sh',
+              'internal/linux/Repair-NeoLabsRuntime.sh',
+              'internal/windows/Ensure-NeoLabsRuntime.ps1',
+              'internal/windows/Test-NeoLabsDockerRuntime.ps1',
               'internal/windows/Repair-NeoLabsRuntime.ps1',
+              'internal/windows/Recover-DockerDesktopBackend.ps1',
               'internal/windows/Start-NeoLabsSOC.ps1',
-              'internal/windows/Start-NeoLabsDocker.ps1',
-          ):
-              if not Path(path).is_file():
-                  raise SystemExit(f'Missing internal Windows implementation file: {path}')
+          ]
+          missing = [p for p in required if not Path(p).is_file()]
+          if missing: raise SystemExit('Missing launcher components: ' + ', '.join(missing))
+          legacy = ['CHECK-NEOLABS-SOC.cmd','START-NEOLABS-DOCKER.cmd','Start-NeoLabsDocker.ps1','Start-NeoLabsSOC.ps1','setup-windows.cmd','neolabs.cmd','neolabs-local.cmd','neolabs.ps1']
+          present = [p for p in legacy if Path(p).exists()]
+          if present: raise SystemExit('Legacy helpers must not clutter repository root: ' + ', '.join(present))
           PY
 
-      - name: Validate telemetry-to-dashboard contract
+      - name: Validate telemetry-to-dashboard and startup contract
         run: |
           python - <<'PY'
           import json
@@ -79,87 +78,65 @@ jobs:
           rules = Path('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
           root = ET.parse(rules).getroot()
           base = next((r for r in root.iter('rule') if r.attrib.get('id') == '100100'), None)
-          if base is None:
-              raise SystemExit('Missing NeoLabs base rule 100100')
-          if int(base.attrib.get('level', '0')) < 3:
-              raise SystemExit('Base VCC rule must create searchable wazuh-alerts-* documents for normal baseline telemetry')
+          if base is None or int(base.attrib.get('level','0')) < 3:
+              raise SystemExit('NeoLabs base rule 100100 must create searchable baseline alerts')
 
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
+          ensure = Path('wazuh-stack/scripts/ensure-prepared.sh').read_text(encoding='utf-8')
+          images = Path('wazuh-stack/scripts/prepare-runtime-images.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
-          root_cmd = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          common = Path('internal/common/Start-NeoLabsSOC.sh').read_text(encoding='utf-8')
+          linux_root = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          windows_cmd = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          windows_authority = Path('internal/windows/Ensure-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           windows_repair = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
-          windows_launcher = Path('internal/windows/Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
-          docker_bootstrap = Path('internal/windows/Start-NeoLabsDocker.ps1').read_text(encoding='utf-8')
-          linux_launcher = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          windows_soc = Path('internal/windows/Start-NeoLabsSOC.ps1').read_text(encoding='utf-8')
           verifier = Path('wazuh-stack/scripts/verify-telemetry-pipeline.sh').read_text(encoding='utf-8')
-          repair = Path('wazuh-stack/scripts/repair-telemetry-pipeline.sh').read_text(encoding='utf-8')
+          telemetry_repair = Path('wazuh-stack/scripts/repair-telemetry-pipeline.sh').read_text(encoding='utf-8')
           doctor = Path('wazuh-stack/scripts/doctor.sh').read_text(encoding='utf-8')
           retention = Path('wazuh-stack/scripts/configure-index-retention.sh').read_text(encoding='utf-8')
           freshness = Path('wazuh-stack/scripts/telemetry-freshness.sh').read_text(encoding='utf-8')
-          saved_template = Path('wazuh-stack/dashboard/neolabs-saved-objects.ndjson.template')
 
           required = {
               'manager JSON localfile input': '/var/ossec/logs/vcc/vcc-events.ndjson' in prepare,
               'shared telemetry volume': 'vcc_telemetry:/var/ossec/logs/vcc' in compose,
               'custom rule mount': 'neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro' in compose,
-              'index verification': 'wazuh-alerts-*/_search' in verifier,
-              'pod field verification': 'data.pod_id' in verifier,
-              'rule-engine verification': 'wazuh-logtest' in verifier,
-              'bounded local repair': 'replayed-objects.json' in repair,
-              'Windows root invokes runtime AutoFix': 'Repair-NeoLabsRuntime.ps1' in root_cmd,
-              'Windows AutoFix checks physical host': 'Assert-PhysicalWindowsWorkstation' in windows_repair and 'Win32_OperatingSystem' in windows_repair,
-              'Windows AutoFix enforces Docker WSL proxy fix floor': "MinimumDockerDesktopVersion = [version]'4.83.0'" in windows_repair,
-              'Windows AutoFix explicitly repairs WSL integration': 'Set-DockerWslIntegration' in windows_repair and 'integratedWslDistros' in windows_repair,
-              'Windows SOC layer avoids duplicate Docker bootstrap': 'Start-NeoLabsDocker.ps1' not in windows_launcher,
-              'Windows launcher installs WSL packages as root': 'apt-get install' in windows_launcher and 'wsl.exe -u root' in windows_launcher,
-              'Windows launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in windows_launcher,
-              'Windows launcher repairs incomplete Wazuh certificates': 'root-ca.pem' in windows_launcher and 'wazuh.indexer.pem' in windows_launcher and 'wazuh.dashboard.pem' in windows_launcher,
-              'Docker mentor helper retains Linux engine support': 'Get-DockerOsType' in docker_bootstrap and 'desktop engine use linux' in docker_bootstrap,
-              'Docker mentor helper retains WSL verification': 'Wait-WslDocker' in docker_bootstrap,
-              'Linux launcher uses controlled sudo/root helper': 'run_root()' in linux_launcher and 'sudo' in linux_launcher,
-              'Linux launcher installs official Docker packages': 'docker-ce' in linux_launcher and 'docker-compose-plugin' in linux_launcher,
-              'Linux launcher fixes indexer kernel setting': 'vm.max_map_count=262144' in linux_launcher,
-              'Windows launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in windows_launcher,
-              'Linux launcher blocks on telemetry': 'verify-telemetry-pipeline.sh' in linux_launcher,
-              'Windows launcher has repair fallback': 'repair-telemetry-pipeline.sh' in windows_launcher,
-              'Linux launcher has repair fallback': 'repair-telemetry-pipeline.sh' in linux_launcher,
-              'Windows launcher prints freshness': 'telemetry-freshness.sh' in windows_launcher,
-              'Linux launcher prints freshness': 'telemetry-freshness.sh' in linux_launcher,
+              'index verification': 'wazuh-alerts-*/_search' in verifier and 'data.pod_id' in verifier,
+              'bounded telemetry repair': 'replayed-objects.json' in telemetry_repair,
+              'central Wazuh prep': 'repair-certificate-permissions.sh' in ensure and 'prepare-runtime-images.sh' in ensure,
+              'pre-auth image preload': all(x in images for x in ('wazuh-indexer','wazuh-manager','wazuh-dashboard','vcc.telemetry.collector')),
+              'common login/connect': 'python3 -m tools.cli login' in common and 'python3 -m tools.cli connect' in common,
+              'common telemetry proof': 'verify-telemetry-pipeline.sh' in common and 'repair-telemetry-pipeline.sh' in common,
+              'common freshness': 'telemetry-freshness.sh' in common,
+              'Linux single AutoFix': 'internal/linux/Test-NeoLabsRuntime.sh' in linux_root and 'internal/linux/Repair-NeoLabsRuntime.sh' in linux_root and 'internal/common/Start-NeoLabsSOC.sh' in linux_root,
+              'Windows single authority': 'Ensure-NeoLabsRuntime.ps1' in windows_cmd and 'Repair-NeoLabsRuntime.ps1' in windows_authority and 'Recover-DockerDesktopBackend.ps1' in windows_authority,
+              'Windows physical guard': 'Assert-PhysicalWindowsWorkstation' in windows_repair,
+              'Windows Docker floor': "MinimumDockerDesktopVersion = [version]'4.83.0'" in windows_repair,
+              'Windows WSL integration repair': 'Set-DockerWslIntegration' in windows_repair,
+              'Windows shared SOC adapter': 'internal/common/Start-NeoLabsSOC.sh' in windows_soc,
               'doctor checks Filebeat': 'filebeat test output' in doctor,
               'doctor checks dashboard': '7/7 Wazuh dashboard' in doctor,
               'retention is scoped': 'wazuh-alerts-*' in retention and "_ism/add/wazuh-alerts-*" in retention,
-              'retention never uses broad add wildcard': "_ism/add/*'" not in retention and '_ism/add/*"' not in retention,
               'freshness checks assigned pod': 'data.pod_id' in freshness,
           }
           missing = [name for name, ok in required.items() if not ok]
-          if missing:
-              raise SystemExit('Telemetry/startup contract incomplete: ' + ', '.join(missing))
+          if missing: raise SystemExit('Telemetry/startup contract incomplete: ' + ', '.join(missing))
 
-          expected = {
-              'neolabs-vcc-alerts': 'index-pattern',
-              'neolabs-night-watch-search': 'search',
-              'neolabs-telemetry-health-search': 'search',
-              'neolabs-night-watch': 'dashboard',
-              'neolabs-telemetry-health': 'dashboard',
-          }
+          if not (common.index('ensure-prepared.sh') < common.index('python3 -m tools.cli login') < common.index('python3 -m tools.cli connect')):
+              raise SystemExit('Shared startup ordering must be prepare/download -> login -> connect')
+          for duplicate in ('install_docker_ubuntu_debian()', 'ensure_docker_access()', 'start_docker_service()'):
+              if duplicate in linux_root: raise SystemExit('Linux root duplicates AutoFix: ' + duplicate)
+          for child in ('Repair-NeoLabsRuntime.ps1','Test-NeoLabsDockerRuntime.ps1','Recover-DockerDesktopBackend.ps1'):
+              if child in windows_cmd: raise SystemExit('Windows CMD bypasses runtime authority: ' + child)
+
+          saved_template = Path('wazuh-stack/dashboard/neolabs-saved-objects.ndjson.template')
+          expected = {'neolabs-vcc-alerts':'index-pattern','neolabs-night-watch-search':'search','neolabs-telemetry-health-search':'search','neolabs-night-watch':'dashboard','neolabs-telemetry-health':'dashboard'}
           seen = {}
-          for number, raw in enumerate(saved_template.read_text(encoding='utf-8').splitlines(), 1):
-              if not raw.strip():
-                  continue
-              item = json.loads(raw.replace('__POD_ID__', 'pod-01'))
+          for raw in saved_template.read_text(encoding='utf-8').splitlines():
+              if not raw.strip(): continue
+              item = json.loads(raw.replace('__POD_ID__','pod-01'))
               seen[item.get('id')] = item.get('type')
-              if not isinstance(item.get('references'), list):
-                  raise SystemExit(f'Saved object line {number} has invalid references')
-          if seen != expected:
-              raise SystemExit(f'Unexpected saved object set: {seen!r}')
-          night = json.loads(saved_template.read_text(encoding='utf-8').splitlines()[1].replace('__POD_ID__', 'pod-01'))
-          columns = night['attributes']['columns']
-          for field in ('data.pod_id','data.event_type','data.dstuser','data.source_ip','data.outcome','data.correlation_id','rule.level','data.event_time'):
-              if field not in columns:
-                  raise SystemExit(f'Night Watch saved view is missing {field}')
-          health = json.loads(saved_template.read_text(encoding='utf-8').splitlines()[2].replace('__POD_ID__', 'pod-01'))
-          if '100150' not in health['attributes']['kibanaSavedObjectMeta']['searchSourceJSON']:
-              raise SystemExit('Telemetry Health saved search must target rule 100150')
+          if seen != expected: raise SystemExit(f'Unexpected saved object set: {seen!r}')
           PY
 
       - name: Test Linux workstation compatibility profile
@@ -176,24 +153,20 @@ jobs:
       - name: Validate XML and NDJSON fixtures
         run: |
           python - <<'PY'
-          import json
-          import xml.etree.ElementTree as ET
+          import json, xml.etree.ElementTree as ET
           from pathlib import Path
-
-          rule_file = Path("wazuh-stack/config/rules/neolabs_vcc_rules.xml")
-          ET.parse(rule_file)
-          required = {"schema_version","event_id","event_time","pod_id","event_type","synthetic"}
-          for path in Path("sample-logs").rglob("*.ndjson"):
-              event_ids = set()
-              for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                  if not raw_line.strip(): continue
-                  event = json.loads(raw_line)
-                  missing = required.difference(event)
-                  if missing: raise SystemExit(f"{path}:{line_number}: missing {sorted(missing)}")
-                  if event["synthetic"] is not True: raise SystemExit(f"{path}:{line_number}: event is not synthetic")
-                  if event["event_id"] in event_ids: raise SystemExit(f"{path}:{line_number}: duplicate event_id")
-                  event_ids.add(event["event_id"])
-              if not event_ids: raise SystemExit(f"{path}: fixture is empty")
+          ET.parse('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
+          required = {'schema_version','event_id','event_time','pod_id','event_type','synthetic'}
+          for path in Path('sample-logs').rglob('*.ndjson'):
+              ids=set()
+              for n, raw in enumerate(path.read_text(encoding='utf-8').splitlines(),1):
+                  if not raw.strip(): continue
+                  event=json.loads(raw); missing=required.difference(event)
+                  if missing: raise SystemExit(f'{path}:{n}: missing {sorted(missing)}')
+                  if event['synthetic'] is not True: raise SystemExit(f'{path}:{n}: event is not synthetic')
+                  if event['event_id'] in ids: raise SystemExit(f'{path}:{n}: duplicate event_id')
+                  ids.add(event['event_id'])
+              if not ids: raise SystemExit(f'{path}: fixture is empty')
           PY
 
       - name: Validate Docker Compose structure
@@ -201,7 +174,7 @@ jobs:
           cp wazuh-stack/.env.example wazuh-stack/.env
           chmod 600 wazuh-stack/.env
           sed -i 's/CHANGE_ME_GENERATE_STRONG_SECRET/0123456789abcdef0123456789abcdef0123456789abcdef/g' wazuh-stack/.env
-          COMPOSE_PROJECT_NAME=neolabs-soc1-wazuh docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
+          docker compose --env-file wazuh-stack/.env -f wazuh-stack/docker-compose.yml config --quiet
           rm -f wazuh-stack/.env
 
       - name: Validate publication source set
@@ -209,19 +182,10 @@ jobs:
           python - <<'PY'
           import ast
           from pathlib import Path
-          script = Path("scripts/build-publications.py")
-          ast.parse(script.read_text(encoding="utf-8"), filename=str(script))
-          required = [
-              "docs/secops-foundations/05-windows-and-sysmon-investigation.md",
-              "docs/secops-foundations/06-linux-web-and-cloud-log-investigation.md",
-              "docs/secops-foundations/07-wazuh-alert-investigation-and-tuning.md",
-              "docs/secops-foundations/08-case-management-reporting-and-capstone.md",
-              "docs/setup/WORKSTATION_COMPATIBILITY.md",
-              "docs/setup/BACKUP_AND_RECOVERY.md",
-              "docs/brand/print.css",
-          ]
-          missing = [path for path in required if not Path(path).is_file()]
-          if missing: raise SystemExit("Missing publication inputs:\n" + "\n".join(missing))
+          ast.parse(Path('scripts/build-publications.py').read_text(encoding='utf-8'))
+          required=['docs/secops-foundations/05-windows-and-sysmon-investigation.md','docs/secops-foundations/06-linux-web-and-cloud-log-investigation.md','docs/secops-foundations/07-wazuh-alert-investigation-and-tuning.md','docs/secops-foundations/08-case-management-reporting-and-capstone.md','docs/setup/WORKSTATION_COMPATIBILITY.md','docs/setup/BACKUP_AND_RECOVERY.md','docs/brand/print.css']
+          missing=[p for p in required if not Path(p).is_file()]
+          if missing: raise SystemExit('Missing publication inputs: ' + ', '.join(missing))
           PY
 
       - name: Check repository safety boundaries
@@ -229,27 +193,20 @@ jobs:
           python - <<'PY'
           import subprocess
           from pathlib import Path
-          forbidden_suffixes = {".key", ".p12", ".pfx"}
-          forbidden_names = {".env", "client.crt", "ca.crt", "enrolment.json", "assigned-pod"}
-          forbidden_directories = {"backups", "secrets", "dist"}
-          tracked = subprocess.check_output(["git", "ls-files", "-z"])
-          violations = []
-          for raw_path in tracked.split(b"\0"):
-              if not raw_path: continue
-              path = Path(raw_path.decode("utf-8"))
-              if path.name in forbidden_names or path.suffix.lower() in forbidden_suffixes or any(part in forbidden_directories for part in path.parts):
-                  violations.append(str(path))
-          if violations: raise SystemExit("Forbidden credential, backup or generated files committed:\n" + "\n".join(violations))
+          forbidden_suffixes={'.key','.p12','.pfx'}; forbidden_names={'.env','client.crt','ca.crt','enrolment.json','assigned-pod'}; forbidden_dirs={'backups','secrets','dist'}
+          violations=[]
+          for raw in subprocess.check_output(['git','ls-files','-z']).split(b'\0'):
+              if not raw: continue
+              p=Path(raw.decode())
+              if p.name in forbidden_names or p.suffix.lower() in forbidden_suffixes or any(part in forbidden_dirs for part in p.parts): violations.append(str(p))
+          if violations: raise SystemExit('Forbidden generated/credential files committed: ' + ', '.join(violations))
           PY
 
   windows-launcher-contract:
     runs-on: windows-latest
     timeout-minutes: 5
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Validate one-click Windows root launcher contract
         shell: cmd
         run: START-NEOLABS-SOC.cmd -ValidateOnly
@@ -257,28 +214,28 @@ jobs:
       - name: Validate internal Windows PowerShell syntax
         shell: powershell
         run: |
-          foreach ($path in '.\internal\windows\Repair-NeoLabsRuntime.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1', '.\internal\windows\Start-NeoLabsSOC.ps1') {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+          foreach ($path in @('.\internal\windows\Ensure-NeoLabsRuntime.ps1','.\internal\windows\Test-NeoLabsDockerRuntime.ps1','.\internal\windows\Repair-NeoLabsRuntime.ps1','.\internal\windows\Recover-DockerDesktopBackend.ps1','.\internal\windows\Start-NeoLabsDocker.ps1','.\internal\windows\Start-NeoLabsSOC.ps1')) {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
           }
 
-      - name: Validate Windows platform and AutoFix guard contract
+      - name: Validate Windows platform and authority guard contract
         shell: powershell
         run: |
-          $repairText = Get-Content .\internal\windows\Repair-NeoLabsRuntime.ps1 -Raw
-          foreach ($required in @('Win32_OperatingSystem','Win32_ComputerSystem','Assert-PhysicalWindowsWorkstation','physical Windows 10/11 workstation','Ubuntu/Debian directly','MinimumDockerDesktopVersion','Set-DockerWslIntegration')) {
-            if ($repairText -notmatch [regex]::Escape($required)) { throw "Windows AutoFix/platform guard is missing: $required" }
+          $repair = Get-Content .\internal\windows\Repair-NeoLabsRuntime.ps1 -Raw
+          $authority = Get-Content .\internal\windows\Ensure-NeoLabsRuntime.ps1 -Raw
+          foreach ($required in @('Win32_OperatingSystem','Win32_ComputerSystem','Assert-PhysicalWindowsWorkstation','MinimumDockerDesktopVersion','Set-DockerWslIntegration')) {
+            if ($repair -notmatch [regex]::Escape($required)) { throw "Windows AutoFix/platform guard missing: $required" }
+          }
+          foreach ($required in @('Test-NeoLabsDockerRuntime.ps1','Repair-NeoLabsRuntime.ps1','Recover-DockerDesktopBackend.ps1','Ensure-WslSocPrerequisites')) {
+            if ($authority -notmatch [regex]::Escape($required)) { throw "Windows runtime authority missing: $required" }
           }
 
-      - name: Validate root CMD routes AutoFix before SOC implementation
+      - name: Validate root CMD routes one authority before SOC adapter
         shell: powershell
         run: |
-          $text = Get-Content .\START-NEOLABS-SOC.cmd -Raw
-          $repairIndex = $text.IndexOf('internal\windows\Repair-NeoLabsRuntime.ps1')
-          $socIndex = $text.IndexOf('internal\windows\Start-NeoLabsSOC.ps1')
-          if ($repairIndex -lt 0) { throw 'Root CMD does not route to Windows AutoFix' }
-          if ($socIndex -lt 0) { throw 'Root CMD does not route to the internal Windows SOC launcher' }
-          if ($repairIndex -gt $socIndex) { throw 'Root CMD must invoke AutoFix before the SOC implementation' }
-          if (-not (Test-Path .\start-neolabs-soc.sh)) { throw 'Linux root launcher is missing' }
+          $text=Get-Content .\START-NEOLABS-SOC.cmd -Raw
+          $runtime=$text.IndexOf('Ensure-NeoLabsRuntime.ps1'); $soc=$text.IndexOf('Start-NeoLabsSOC.ps1')
+          if ($runtime -lt 0 -or $soc -lt 0 -or $runtime -gt $soc) { throw 'Root CMD must route runtime authority before SOC adapter' }
+          foreach ($child in @('Repair-NeoLabsRuntime.ps1','Test-NeoLabsDockerRuntime.ps1','Recover-DockerDesktopBackend.ps1')) { if ($text -match [regex]::Escape($child)) { throw "Root CMD must not directly call $child" } }

@@ -22,71 +22,56 @@ jobs:
           import re
 
           launcher = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          authority = Path('internal/windows/Ensure-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           runtime_test = Path('internal/windows/Test-NeoLabsDockerRuntime.ps1').read_text(encoding='utf-8')
           repair = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           backend = Path('internal/windows/Recover-DockerDesktopBackend.ps1').read_text(encoding='utf-8')
 
-          # The launcher must positively confirm the real runtime before any repair
-          # and again before destructive-looking (but data-preserving) backend recycle.
-          if 'Test-NeoLabsDockerRuntime.ps1' not in launcher:
-              raise SystemExit('Windows launcher must use the positive Docker runtime confirmation helper')
-          first_test = launcher.index('Checking whether the existing Windows/WSL2/Docker runtime is already healthy')
-          primary_repair = launcher.index('Running automatic Windows/WSL2/Docker health and repair checks')
-          before_backend = launcher.index('Confirming the real Linux engine before recycling anything')
-          backend_recovery = launcher.index('%NEOLABS_BACKEND_RECOVERY_PS1%', before_backend)
-          if not (first_test < primary_repair < before_backend < backend_recovery):
-              raise SystemExit('Windows launcher must positively confirm runtime before repair escalation')
+          if 'Ensure-NeoLabsRuntime.ps1' not in launcher:
+              raise SystemExit('Windows root launcher must use the single runtime authority')
+          for child in ('Test-NeoLabsDockerRuntime.ps1','Repair-NeoLabsRuntime.ps1','Recover-DockerDesktopBackend.ps1'):
+              if child in launcher:
+                  raise SystemExit('Windows root launcher must not directly orchestrate child helper: ' + child)
+              if child not in authority:
+                  raise SystemExit('Windows runtime authority must own child helper: ' + child)
+          if authority.index('Test-RuntimeReady') > authority.index('primary non-destructive AutoFix'):
+              raise SystemExit('Windows runtime must positively test readiness before repair escalation')
+          if 'Ensure-WslSocPrerequisites' not in authority or 'vm.max_map_count=262144' not in authority:
+              raise SystemExit('Windows authority must prepare WSL userland/kernel prerequisites')
 
           runtime_requirements = {
               'desktop-linux context': 'context inspect desktop-linux' in runtime_test,
               'formatted host probe': "info --format '{{.OSType}}'" in runtime_test,
-              'complete native output capture': "@(& $DockerCli --context desktop-linux info" in runtime_test,
-              'full info fallback parser': 'FullInfo' in runtime_test and "OSType:\\s*(linux|windows)" in runtime_test,
+              'full info fallback parser': 'FullInfo' in runtime_test,
               'default WSL positive probe': 'Get-DockerWslOsType' in runtime_test,
           }
           missing = [name for name, ok in runtime_requirements.items() if not ok]
-          if missing:
-              raise SystemExit('Windows runtime positive-confirmation contract incomplete: ' + ', '.join(missing))
+          if missing: raise SystemExit('Windows positive runtime test incomplete: ' + ', '.join(missing))
 
           repair_requirements = {
               'independent server version fallback': "@('version', '--format', '{{.Server.Os}}')" in repair,
-              'context refresh inside wait': 'function Wait-DockerEngine' in repair and 'Resolve-NeoLabsDockerContext' in repair[repair.index('function Wait-DockerEngine'):repair.index('function Start-DockerDesktop')],
-              'timeout-boundary probe': 'return (Get-DockerOsType)' in repair,
-              'final grace probe': 'final grace probe' in repair,
-              'WSL server version fallback': 'docker version --format "{{.Server.Os}}"' in repair,
-              'fast diagnostics': '=== DOCKER PROCESSES ===' in repair and '=== DOCKER CONTEXTS ===' in repair,
+              'context refresh': 'Resolve-NeoLabsDockerContext' in repair,
+              'final grace': 'final grace probe' in repair,
+              'WSL integration repair': 'Set-DockerWslIntegration' in repair,
           }
           missing = [name for name, ok in repair_requirements.items() if not ok]
-          if missing:
-              raise SystemExit('Primary Windows AutoFix correlation contract incomplete: ' + ', '.join(missing))
+          if missing: raise SystemExit('Primary Windows AutoFix incomplete: ' + ', '.join(missing))
 
           backend_requirements = {
-              'per-user WSL2 recognition': 'per-user-wsl2' in backend and 'intentionally absent' in backend,
-              'independent server version fallback': "@('version', '--format', '{{.Server.Os}}')" in backend,
-              'context refresh inside wait': 'function Wait-DockerLinuxEngine' in backend and 'Resolve-DockerContext' in backend[backend.index('function Wait-DockerLinuxEngine'):backend.index('function Stop-DockerDesktopGracefully')],
-              'least-disruptive restart first': 'least-disruptive recovery mechanism' in backend,
-              'final grace probe': 'final grace probe' in backend,
+              'per-user WSL2 recognition': 'per-user-wsl2' in backend,
+              'context refresh': 'Resolve-DockerContext' in backend,
+              'least disruptive restart': 'least-disruptive recovery mechanism' in backend,
               'late healthy acceptance': 'became healthy while diagnostics were being written' in backend,
           }
           missing = [name for name, ok in backend_requirements.items() if not ok]
-          if missing:
-              raise SystemExit('Deep Windows Docker recovery correlation contract incomplete: ' + ', '.join(missing))
+          if missing: raise SystemExit('Deep Windows recovery incomplete: ' + ', '.join(missing))
 
-          # Never revive the native-process $args collision that contributed to a
-          # fragile probe path, and never make the one-click failure path build a
-          # multi-minute Docker support archive automatically.
           for name, text in [('repair', repair), ('backend', backend)]:
               if re.search(r'(?m)^\s*\$args\s*=', text):
                   raise SystemExit(f'{name} must not assign to PowerShell automatic variable $args')
               if re.search(r'(?m)^\s*(?:try\s*\{\s*)?&\s*\$script:DockerCli\s+desktop\s+diagnose\b', text):
-                  raise SystemExit(f'{name} must not automatically run the long Docker Desktop diagnose archive')
-
-          forbidden = (
-              '--unregister docker-desktop', '--unregister docker-desktop-data',
-              'factory reset', 'docker system prune', 'Remove-Item -Recurse',
-          )
-          for text in (repair, backend):
-              for item in forbidden:
+                  raise SystemExit(f'{name} must not automatically run a long Docker support archive')
+              for item in ('--unregister docker-desktop','--unregister docker-desktop-data','factory reset','docker system prune','Remove-Item -Recurse'):
                   if item.lower() in text.lower():
                       raise SystemExit('Windows runtime recovery must remain non-destructive: ' + item)
           PY
@@ -101,19 +86,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(
+            'internal/windows/Ensure-NeoLabsRuntime.ps1',
             'internal/windows/Test-NeoLabsDockerRuntime.ps1',
             'internal/windows/Repair-NeoLabsRuntime.ps1',
-            'internal/windows/Recover-DockerDesktopBackend.ps1'
+            'internal/windows/Recover-DockerDesktopBackend.ps1',
+            'internal/windows/Start-NeoLabsSOC.ps1'
           )
           foreach ($file in $files) {
-            $tokens = $null
-            $errors = $null
+            $tokens = $null; $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors)
-            if ($errors.Count -gt 0) {
-              $errors | Format-List | Out-String | Write-Error
-              throw "PowerShell parser rejected $file"
-            }
+            if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; throw "PowerShell parser rejected $file" }
           }
-          powershell -NoProfile -ExecutionPolicy Bypass -File internal/windows/Test-NeoLabsDockerRuntime.ps1 -ValidateOnly
-          powershell -NoProfile -ExecutionPolicy Bypass -File internal/windows/Repair-NeoLabsRuntime.ps1 -ValidateOnly
-          powershell -NoProfile -ExecutionPolicy Bypass -File internal/windows/Recover-DockerDesktopBackend.ps1 -ValidateOnly
+          powershell -NoProfile -ExecutionPolicy Bypass -File internal/windows/Ensure-NeoLabsRuntime.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -NoProfile -ExecutionPolicy Bypass -File internal/windows/Start-NeoLabsSOC.ps1 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,0 +1,140 @@
+name: Validate launcher convergence
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  shared-launcher-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Parse shared and Linux startup paths
+        run: |
+          set -euo pipefail
+          bash -n start-neolabs-soc.sh
+          bash -n internal/linux/Test-NeoLabsRuntime.sh
+          bash -n internal/linux/Repair-NeoLabsRuntime.sh
+          bash -n internal/common/Start-NeoLabsSOC.sh
+          bash -n wazuh-stack/scripts/ensure-prepared.sh
+          bash -n wazuh-stack/scripts/prepare-runtime-images.sh
+          bash -n wazuh-stack/scripts/prepare-stack.sh
+          bash -n wazuh-stack/scripts/start.sh
+          bash -n wazuh-stack/scripts/recover-runtime.sh
+          python3 -m py_compile wazuh-stack/scripts/validate-local-rules.py
+          python3 wazuh-stack/scripts/validate-local-rules.py
+          bash start-neolabs-soc.sh --validate-only
+
+      - name: Guard one authority per layer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          linux = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          common = Path('internal/common/Start-NeoLabsSOC.sh').read_text(encoding='utf-8')
+          ensure = Path('wazuh-stack/scripts/ensure-prepared.sh').read_text(encoding='utf-8')
+          prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
+          images = Path('wazuh-stack/scripts/prepare-runtime-images.sh').read_text(encoding='utf-8')
+          start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
+          recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
+          compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
+
+          runtime_call = 'bash internal/linux/Repair-NeoLabsRuntime.sh || fail'
+          if linux.count(runtime_call) != 1:
+              raise SystemExit('Linux root launcher must have exactly one real AutoFix escalation')
+          for forbidden in ('install_docker_ubuntu_debian()', 'start_docker_service()', 'ensure_docker_access()'):
+              if forbidden in linux:
+                  raise SystemExit('Linux root launcher duplicated native Docker bootstrap logic: ' + forbidden)
+          if 'exec bash internal/common/Start-NeoLabsSOC.sh' not in linux:
+              raise SystemExit('Linux root launcher must delegate post-runtime startup to shared orchestrator')
+
+          prep = common.index('ensure-prepared.sh')
+          login = common.index('tools.cli login')
+          connect = common.index('tools.cli connect')
+          if not (prep < login < connect):
+              raise SystemExit('Wazuh preparation/image preload must happen before login and connect')
+          if common.count('tools.cli connect') != 1:
+              raise SystemExit('Shared SOC orchestrator must have one stack-start/connect authority')
+          if 'health-check.sh --wait' in common:
+              raise SystemExit('Shared orchestrator must not duplicate the health wait already owned by wazuh start.sh')
+
+          certs = (
+              'root-ca.pem','root-ca-manager.pem','admin.pem','admin-key.pem',
+              'wazuh.indexer.pem','wazuh.indexer-key.pem','wazuh.manager.pem',
+              'wazuh.manager-key.pem','wazuh.dashboard.pem','wazuh.dashboard-key.pem',
+          )
+          for cert in certs:
+              if cert not in ensure:
+                  raise SystemExit('Central preparation gate is missing TLS artifact: ' + cert)
+          if 'prepare-runtime-images.sh' not in ensure or 'prepare-runtime-images.sh' not in prepare:
+              raise SystemExit('Runtime image preload must be part of both preparation repair and verification')
+          for image in ('wazuh-indexer', 'wazuh-manager', 'wazuh-dashboard'):
+              if image not in images:
+                  raise SystemExit('Runtime image preload is missing ' + image)
+          if 'vcc.telemetry.collector' not in images or 'docker compose --env-file .env build' not in images:
+              raise SystemExit('Telemetry collector must be built before authentication')
+
+          if 'ensure-prepared.sh' not in start or 'validate-local-rules.py' not in start:
+              raise SystemExit('Low-level Wazuh start must reuse central preparation and deterministic rule validation')
+          if start.index('validate-local-rules.py') > start.index('recover-runtime.sh'):
+              raise SystemExit('Rule validation must happen before Wazuh recovery')
+          if 'manager_fatal_reason' not in recovery or 'Deterministic Wazuh manager configuration failure' not in recovery:
+              raise SystemExit('Wazuh recovery must fail fast on deterministic manager configuration errors')
+          if 'curl -skf https://localhost:5601/status' not in compose:
+              raise SystemExit('Dashboard healthcheck must fail on HTTP errors')
+
+          forbidden = ('docker system prune', 'rm -rf /var/lib/docker', '--unregister docker-desktop', 'factory reset')
+          for path in (linux, common, ensure, recovery):
+              for token in forbidden:
+                  if token.lower() in path.lower():
+                      raise SystemExit('Converged launchers must remain non-destructive: ' + token)
+          PY
+
+  windows-launcher-contract:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows authority and adapter
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @(
+            '.\internal\windows\Ensure-NeoLabsRuntime.ps1',
+            '.\internal\windows\Test-NeoLabsDockerRuntime.ps1',
+            '.\internal\windows\Repair-NeoLabsRuntime.ps1',
+            '.\internal\windows\Recover-DockerDesktopBackend.ps1',
+            '.\internal\windows\Start-NeoLabsSOC.ps1'
+          )) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { $errors | Format-List | Out-String | Write-Error; throw "PowerShell parser rejected $path" }
+          }
+          .\START-NEOLABS-SOC.cmd -ValidateOnly
+
+      - name: Guard single Windows runtime authority
+        shell: powershell
+        run: |
+          $cmd = Get-Content .\START-NEOLABS-SOC.cmd -Raw
+          $authority = Get-Content .\internal\windows\Ensure-NeoLabsRuntime.ps1 -Raw
+          $soc = Get-Content .\internal\windows\Start-NeoLabsSOC.ps1 -Raw
+          if ($cmd -notmatch 'Ensure-NeoLabsRuntime\.ps1') { throw 'Root CMD must invoke single Windows runtime authority' }
+          foreach ($forbidden in @('Repair-NeoLabsRuntime.ps1','Test-NeoLabsDockerRuntime.ps1','Recover-DockerDesktopBackend.ps1')) {
+            if ($cmd -match [regex]::Escape($forbidden)) { throw "Root CMD must not directly invoke child runtime helper: $forbidden" }
+          }
+          foreach ($required in @('Test-NeoLabsDockerRuntime.ps1','Repair-NeoLabsRuntime.ps1','Recover-DockerDesktopBackend.ps1','Ensure-WslSocPrerequisites')) {
+            if ($authority -notmatch [regex]::Escape($required)) { throw "Windows runtime authority missing: $required" }
+          }
+          if ($soc -notmatch 'internal/common/Start-NeoLabsSOC\.sh') { throw 'Windows SOC adapter must delegate to shared orchestrator' }
+          foreach ($forbidden in @('Repair-NeoLabsRuntime.ps1','Recover-DockerDesktopBackend.ps1','prepare-stack.sh','Assert-DockerStillAvailable','verify-telemetry-pipeline.sh')) {
+            if ($soc -match [regex]::Escape($forbidden)) { throw "Windows SOC adapter duplicated runtime/SOC ownership: $forbidden" }
+          }
