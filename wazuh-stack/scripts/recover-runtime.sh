@@ -42,6 +42,17 @@ wait_healthy() {
   return 1
 }
 
+runtime_fingerprint() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum \
+      config/rules/neolabs_vcc_rules.xml \
+      generated/config/wazuh_cluster/wazuh_manager.conf \
+      2>/dev/null | sha256sum | awk '{print $1}'
+  else
+    printf 'unknown'
+  fi
+}
+
 save_diagnostics() {
   local reason="$1" stamp path
   mkdir -p state/runtime-diagnostics
@@ -70,14 +81,56 @@ save_diagnostics() {
   warn "Saved Wazuh runtime diagnostics: ${ROOT_DIR}/${path}"
 }
 
+recover_indexer() {
+  log "Starting the Wazuh indexer first..."
+  docker compose --env-file .env up -d --no-deps wazuh.indexer
+  if wait_healthy wazuh.indexer 360; then
+    ok "Wazuh indexer is healthy."
+    return 0
+  fi
+
+  save_diagnostics "Wazuh indexer did not become healthy after normal start."
+  warn "Indexer is unhealthy. Restarting it once while preserving all index data."
+  docker compose --env-file .env restart wazuh.indexer >/dev/null 2>&1 || true
+  if wait_healthy wazuh.indexer 180; then
+    ok "Wazuh indexer recovered after restart."
+    return 0
+  fi
+
+  warn "Indexer still is not healthy. Recreating only its container; the persistent wazuh-indexer-data volume is preserved."
+  docker compose --env-file .env up -d --force-recreate --no-deps wazuh.indexer
+  if wait_healthy wazuh.indexer 240; then
+    ok "Wazuh indexer recovered after container recreation."
+    return 0
+  fi
+
+  save_diagnostics "Wazuh indexer did not recover after restart/container recreation."
+  return 1
+}
+
 recover_manager() {
+  local before fingerprint previous_fingerprint
+  before="$(service_status wazuh.manager)"
+  fingerprint="$(runtime_fingerprint)"
+  previous_fingerprint="$(cat state/wazuh-runtime-fingerprint 2>/dev/null || true)"
+
   log "Starting the Wazuh manager independently so an unhealthy manager cannot block the dashboard dependency chain..."
   docker compose --env-file .env up -d --no-deps wazuh.manager
 
-  # Always reload the manager process after a toolkit pull so bind-mounted NeoLabs
-  # rules are picked up even when Compose reuses an existing healthy container.
+  # Fast subsequent-run path: if the manager was already healthy and the
+  # bind-mounted NeoLabs rule/config fingerprint did not change, reuse it.
+  if [[ "$before" == "running/healthy" && -n "$previous_fingerprint" && "$fingerprint" == "$previous_fingerprint" ]]; then
+    if wait_healthy wazuh.manager 30; then
+      ok "Existing Wazuh manager is healthy and current; reusing it without a restart."
+      return 0
+    fi
+  fi
+
+  # New/stopped/unhealthy containers, or a toolkit pull that changed rules,
+  # receive one manager restart so wazuh-analysisd loads the current config.
   docker compose --env-file .env restart wazuh.manager >/dev/null 2>&1 || true
   if wait_healthy wazuh.manager 240; then
+    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
     ok "Wazuh manager is healthy."
     return 0
   fi
@@ -86,6 +139,7 @@ recover_manager() {
   warn "Manager is still unhealthy. Recreating only the manager container; indexer data and pod telemetry are preserved."
   docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
   if wait_healthy wazuh.manager 180; then
+    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
     ok "Wazuh manager recovered after container recreation."
     return 0
   fi
@@ -97,6 +151,7 @@ recover_manager() {
   docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc" >/dev/null 2>&1 || true
   docker compose --env-file .env up -d --no-deps wazuh.manager
   if wait_healthy wazuh.manager 240; then
+    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
     ok "Wazuh manager recovered after rebuilding its local configuration volume."
     return 0
   fi
@@ -108,13 +163,9 @@ recover_manager() {
 log "Validating Docker Compose before runtime recovery..."
 docker compose --env-file .env config --quiet
 
-log "Starting the Wazuh indexer first..."
-docker compose --env-file .env up -d --no-deps wazuh.indexer
-if ! wait_healthy wazuh.indexer 360; then
-  save_diagnostics "Wazuh indexer did not become healthy."
-  fail "Wazuh indexer did not become healthy after six minutes. Check the diagnostic file above; insufficient RAM/disk or damaged local indexer state requires operator review."
+if ! recover_indexer; then
+  fail "Wazuh indexer could not be recovered automatically. Its data volume was deliberately preserved. Check the diagnostic file above; low RAM/disk or damaged index data requires operator review."
 fi
-ok "Wazuh indexer is healthy."
 
 if ! recover_manager; then
   fail "Wazuh manager could not be recovered automatically. Use the diagnostic file above; do not delete the indexer or telemetry volumes manually."
