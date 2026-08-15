@@ -21,12 +21,16 @@ foreach ($path in @($TestScript, $RepairScript, $BackendScript)) {
 }
 
 function Invoke-Helper([string]$Path, [string[]]$Arguments = @()) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Path @Arguments
-    return $LASTEXITCODE
+    # Send child output to the host so it cannot accidentally become part of this
+    # function's return value. Only the process exit code drives state transitions.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Path @Arguments | Out-Host
+    $code = $LASTEXITCODE
+    return [int]$code
 }
 
 function Test-RuntimeReady {
-    return ((Invoke-Helper $TestScript) -eq 0)
+    $code = Invoke-Helper $TestScript
+    return ($code -eq 0)
 }
 
 function Ensure-WslSocPrerequisites {
@@ -80,8 +84,6 @@ if ($ValidateOnly) {
     exit 0
 }
 
-# One state machine owns all Windows runtime decisions. The root CMD and SOC
-# layer never independently restart Docker or reinterpret readiness.
 Write-Step 'Checking the existing Windows/WSL2/Docker runtime...'
 if (Test-RuntimeReady) {
     Write-Ok 'Existing Windows runtime is healthy; no repair/restart is needed.'
@@ -106,9 +108,6 @@ if ($backendExit -eq 0 -and (Test-RuntimeReady)) {
     exit 0
 }
 
-# A backend recycle can restore the Linux engine while leaving the selected user
-# distro integration stale. Give the primary integration repair exactly one final
-# pass, then decide only from the positive end-to-end runtime test.
 Write-Step 'Applying one final WSL integration reconciliation pass...'
 $repairExit = Invoke-Helper $RepairScript @('-ToolkitRoot', $ToolkitRoot)
 if ($repairExit -eq 3010) { exit 3010 }
