@@ -314,14 +314,14 @@ function Resolve-NeoLabsDockerContext {
     }
 }
 
-function Get-DockerOsType {
+function Invoke-DockerProbe([string[]]$ProbeArguments) {
     if (-not $script:DockerCli) { return $null }
     try {
         $arguments = @()
         if ($script:DockerContext) {
             $arguments += @('--context', $script:DockerContext)
         }
-        $arguments += @('info', '--format', '{{.OSType}}')
+        $arguments += $ProbeArguments
         $value = (& $script:DockerCli @arguments 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -eq 0 -and $value) {
             return $value.Trim().ToLowerInvariant()
@@ -330,14 +330,31 @@ function Get-DockerOsType {
     return $null
 }
 
+function Get-DockerOsType {
+    $value = Invoke-DockerProbe @('info', '--format', '{{.OSType}}')
+    if ($value -in @('linux', 'windows')) { return $value }
+
+    # Independent fallback: on some Desktop startups the server can answer the
+    # version endpoint before `docker info --format` has settled.
+    $value = Invoke-DockerProbe @('version', '--format', '{{.Server.Os}}')
+    if ($value -in @('linux', 'windows')) { return $value }
+    return $null
+}
+
 function Wait-DockerEngine([int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     do {
+        # Docker Desktop can report "running" before desktop-linux is published.
+        # Refresh the context every probe so the whole wait is not pinned to a
+        # stale default endpoint.
+        Resolve-NeoLabsDockerContext
         $value = Get-DockerOsType
         if ($value) { return $value }
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
-    return $null
+
+    Resolve-NeoLabsDockerContext
+    return (Get-DockerOsType)
 }
 
 function Start-DockerDesktop([int]$TimeoutSeconds = 120) {
@@ -530,6 +547,13 @@ function Set-DockerWslIntegration {
 function Test-DockerInsideWsl([string]$DistroName, [string]$LinuxRoot) {
     try {
         $value = (& wsl.exe --distribution $DistroName --cd $LinuxRoot --exec sh -lc 'docker info --format "{{.OSType}}" 2>/dev/null' 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -eq 0 -and $value -and $value.Trim().ToLowerInvariant() -eq 'linux') {
+            return $true
+        }
+    } catch { }
+
+    try {
+        $value = (& wsl.exe --distribution $DistroName --cd $LinuxRoot --exec sh -lc 'docker version --format "{{.Server.Os}}" 2>/dev/null' 2>$null | Select-Object -First 1)
         return ($LASTEXITCODE -eq 0 -and $value -and $value.Trim().ToLowerInvariant() -eq 'linux')
     } catch {
         return $false
@@ -542,7 +566,7 @@ function Wait-DockerInsideWsl([string]$DistroName, [string]$LinuxRoot, [int]$Sec
         if (Test-DockerInsideWsl $DistroName $LinuxRoot) { return $true }
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
-    return $false
+    return (Test-DockerInsideWsl $DistroName $LinuxRoot)
 }
 
 function Save-RuntimeDiagnostics([string]$Reason, [string]$DistroName = '') {
@@ -550,11 +574,13 @@ function Save-RuntimeDiagnostics([string]$Reason, [string]$DistroName = '') {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     $path = Join-Path $logDir ("runtime-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
+    Resolve-NeoLabsDockerContext
     @(
         'NeoLabs Windows runtime diagnostics',
         "Time: $(Get-Date -Format o)",
         "Reason: $Reason",
-        "Docker Desktop version: $(Get-DockerDesktopVersion)"
+        "Docker Desktop version: $(Get-DockerDesktopVersion)",
+        "NeoLabs engine probe: $(Get-DockerOsType)"
     ) | Out-File -FilePath $path -Encoding utf8
 
     "`n=== WSL VERSION ===" | Out-File -FilePath $path -Append
@@ -562,13 +588,33 @@ function Save-RuntimeDiagnostics([string]$Reason, [string]$DistroName = '') {
     "`n=== WSL DISTROS ===" | Out-File -FilePath $path -Append
     try { (& wsl.exe -l -v 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
 
+    "`n=== DOCKER SERVICE ===" | Out-File -FilePath $path -Append
+    try { (Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue | Format-List Name, Status, StartType | Out-String) | Out-File -FilePath $path -Append } catch { }
+
+    "`n=== DOCKER PROCESSES ===" | Out-File -FilePath $path -Append
+    try { (Get-Process | Where-Object { $_.ProcessName -match 'docker|vpnkit' } | Select-Object ProcessName, Id, Path | Format-Table -AutoSize | Out-String) | Out-File -FilePath $path -Append } catch { }
+
+    if ($script:DockerCli) {
+        "`n=== DOCKER CONTEXTS ===" | Out-File -FilePath $path -Append
+        try { (& $script:DockerCli context ls 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
+
+        "`n=== DOCKER INFO ===" | Out-File -FilePath $path -Append
+        try {
+            $arguments = @()
+            if ($script:DockerContext) { $arguments += @('--context', $script:DockerContext) }
+            $arguments += 'info'
+            (& $script:DockerCli @arguments 2>&1 | Out-String) | Out-File -FilePath $path -Append
+        } catch { }
+    }
+
     if (Test-DockerDesktopCli) {
         "`n=== DOCKER DESKTOP STATUS ===" | Out-File -FilePath $path -Append
         try { (& $script:DockerCli desktop status 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
         "`n=== DOCKER DESKTOP LOGS (10m) ===" | Out-File -FilePath $path -Append
         try { (& $script:DockerCli desktop logs --priority 2 --since '10m' 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
-        "`n=== DOCKER DESKTOP LOCAL DIAGNOSE ===" | Out-File -FilePath $path -Append
-        try { (& $script:DockerCli desktop diagnose 2>&1 | Out-String) | Out-File -FilePath $path -Append } catch { }
+        # Intentionally do not run `docker desktop diagnose` here: that command can
+        # spend many minutes building a support archive and made the one-click
+        # launcher appear hung on cohort machines.
     }
 
     $settingsPath = Get-DockerSettingsPath
@@ -586,7 +632,7 @@ function Save-RuntimeDiagnostics([string]$Reason, [string]$DistroName = '') {
     if ($DistroName) {
         "`n=== USER DISTRO DOCKER PROXY ===" | Out-File -FilePath $path -Append
         try {
-            $command = 'command -v docker; ls -l /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker 2>&1; stat -c "%n size=%s mode=%a" /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker 2>&1'
+            $command = 'command -v docker; docker info --format "{{.OSType}}" 2>&1; docker version --format "{{.Server.Os}}" 2>&1; ls -l /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker 2>&1; stat -c "%n size=%s mode=%a" /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker 2>&1'
             (& wsl.exe -d $DistroName --exec sh -lc $command 2>&1 | Out-String) | Out-File -FilePath $path -Append
         } catch { }
     }
@@ -656,7 +702,16 @@ function Ensure-DockerLinuxEngine {
         return
     }
 
+    if ((Wait-DockerEngine 30) -eq 'linux') {
+        Write-Ok 'Docker Linux engine became ready during the final grace probe.'
+        return
+    }
+
     $logPath = Save-RuntimeDiagnostics 'Docker Linux daemon did not recover after bounded automatic repair.'
+    if ((Get-DockerOsType) -eq 'linux') {
+        Write-Ok 'Docker Linux engine became healthy while diagnostics were being written; continuing.'
+        return
+    }
     throw "Docker Desktop needs attention on this workstation. Diagnostic log: $logPath"
 }
 
@@ -716,6 +771,10 @@ function Ensure-DockerInsideWsl($Distro) {
     }
 
     $logPath = Save-RuntimeDiagnostics "Docker is healthy on Windows but unavailable inside '$($Distro.Name)'." $Distro.Name
+    if (Test-DockerInsideWsl $Distro.Name $linuxRoot) {
+        Write-Ok "Docker WSL integration became healthy while diagnostics were being written for '$($Distro.Name)'."
+        return
+    }
     throw "Docker WSL integration is still blocked after automatic repair. Diagnostic log: $logPath"
 }
 
