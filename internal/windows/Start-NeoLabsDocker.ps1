@@ -205,7 +205,7 @@ if ($defaultDistro.Version -ne 2) {
 }
 Write-Host "[OK] Default WSL distro: $($defaultDistro.Name) (WSL2)" -ForegroundColor Green
 
-$linuxRoot = (& wsl.exe wslpath -a $ToolkitRoot 2>$null | Select-Object -First 1)
+$linuxRoot = (& wsl.exe --distribution $defaultDistro.Name --exec wslpath -a $ToolkitRoot 2>$null | Select-Object -First 1)
 if (-not $linuxRoot) { throw 'The SOC toolkit folder cannot be translated into WSL2. Move/clone it to a location visible to WSL2 and retry.' }
 $linuxRoot = $linuxRoot.Trim()
 
