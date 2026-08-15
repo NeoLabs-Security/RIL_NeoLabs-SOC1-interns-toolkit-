@@ -159,4 +159,4 @@ jobs:
             --entrypoint /bin/bash \
             -v "$GITHUB_WORKSPACE/wazuh-stack/config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro" \
             wazuh/wazuh-manager:4.14.7 \
-            -lc 'cd /var/ossec && bin/wazuh-analysisd -t'
+            -lc 'cp -a /var/ossec/data_tmp/permanent/var/ossec/etc/. /var/ossec/etc/ && cd /var/ossec && bin/wazuh-analysisd -t'
