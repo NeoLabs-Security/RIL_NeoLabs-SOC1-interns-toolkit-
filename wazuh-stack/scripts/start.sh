@@ -6,13 +6,35 @@ cd "${ROOT_DIR}"
 
 ./scripts/preflight.sh
 
-required_paths=(
+# A previous/interrupted preparation can leave enough generated files for the
+# outer launcher to think the stack is reusable while the TLS certificates are
+# still missing. Treat the generated Wazuh configuration as an atomic set. If
+# any required generated artifact is absent, repair it automatically before
+# attempting to start containers.
+generated_required_paths=(
   generated/config/wazuh_cluster/wazuh_manager.conf
   generated/config/wazuh_indexer/internal_users.yml
   generated/config/wazuh_indexer_ssl_certs/root-ca.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.indexer.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.manager.pem
   generated/config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem
+)
+
+needs_preparation=0
+for path in "${generated_required_paths[@]}"; do
+  if [[ ! -f "${path}" ]]; then
+    printf '[WARN] Wazuh generated configuration is incomplete; missing %s.\n' "${path}" >&2
+    needs_preparation=1
+  fi
+done
+
+if (( needs_preparation )); then
+  printf '[NeoLabs] Repairing the generated Wazuh configuration automatically...\n'
+  ./scripts/prepare-stack.sh
+fi
+
+required_paths=(
+  "${generated_required_paths[@]}"
   config/rules/neolabs_vcc_rules.xml
   dashboard/neolabs-saved-objects.ndjson.template
   scripts/configure-index-retention.sh
@@ -24,7 +46,7 @@ required_paths=(
 
 for path in "${required_paths[@]}"; do
   if [[ ! -f "${path}" ]]; then
-    printf 'ERROR: Missing required Wazuh file %s. Run ./scripts/prepare-stack.sh first when applicable.\n' "${path}" >&2
+    printf 'ERROR: Missing required Wazuh file %s after automatic preparation. Pull the latest toolkit and rerun the NeoLabs launcher.\n' "${path}" >&2
     exit 1
   fi
 done
