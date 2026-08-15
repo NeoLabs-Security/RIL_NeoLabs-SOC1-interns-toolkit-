@@ -29,7 +29,7 @@ Usage: ./start-neolabs-soc.sh [start|doctor|status|login] [--no-browser]
 Normal use:
   ./start-neolabs-soc.sh
 
-First run installs/checks Linux prerequisites, Docker Engine + Compose (Ubuntu/Debian),
+First run automatically repairs/checks Ubuntu/Debian prerequisites, Docker Engine + Compose,
 prepares Wazuh, authenticates to NeoLabs and verifies assigned-pod telemetry.
 Subsequent runs reuse the installation and simply start/reconnect/verify Wazuh.
 EOF
@@ -49,9 +49,11 @@ if (( VALIDATE_ONLY )); then
   cd "${ROOT_DIR}"
   [[ -f "${ROOT_DIR}/tools/cli.py" ]] || fail "tools/cli.py is missing"
   [[ -f "${ROOT_DIR}/tools/__init__.py" ]] || fail "tools package marker is missing"
+  [[ -f "${ROOT_DIR}/internal/linux/Repair-NeoLabsRuntime.sh" ]] || fail "Linux AutoFix helper is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/generate-local-secrets.sh" ]] || fail "Wazuh secret generator is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/prepare-stack.sh" ]] || fail "Wazuh prepare script is missing"
   [[ -f "${ROOT_DIR}/wazuh-stack/scripts/verify-telemetry-pipeline.sh" ]] || fail "Wazuh telemetry verifier is missing"
+  bash internal/linux/Repair-NeoLabsRuntime.sh --validate-only >/dev/null
   python3 -m tools.cli --help >/dev/null 2>&1 || fail "NeoLabs CLI cannot import from a clean checkout"
   python3 tools/cli.py --help >/dev/null 2>&1 || fail "Direct NeoLabs CLI compatibility path is broken"
   ok "Linux one-click SOC launcher contract is valid."
@@ -63,6 +65,9 @@ if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; the
 fi
 
 cd "${ROOT_DIR}"
+
+log "Running automatic Ubuntu/Debian runtime health and repair checks..."
+bash internal/linux/Repair-NeoLabsRuntime.sh || fail "Linux AutoFix could not safely recover this workstation. Review the message above; a diagnostic log is written when Docker recovery fails."
 
 install_base_packages() {
   local missing=0
