@@ -36,6 +36,8 @@ jobs:
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
           linux = Path('internal/linux/Repair-NeoLabsRuntime.sh').read_text(encoding='utf-8')
           windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
+          windows_backend = Path('internal/windows/Recover-DockerDesktopBackend.ps1').read_text(encoding='utf-8')
+          windows_launcher = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
 
           if 'repair-certificate-permissions.sh' not in prepare:
               raise SystemExit('prepare-stack.sh must repair/verify generated certificate permissions before succeeding')
@@ -76,6 +78,31 @@ jobs:
           dashboard = recovery.index('Starting the Wazuh dashboard only after manager and indexer health is proven')
           if not (indexer < manager < dashboard):
               raise SystemExit('Runtime recovery must prove indexer, then manager, before starting dashboard')
+
+          windows_backend_requirements = {
+              'launcher invokes second-stage backend recovery': 'Recover-DockerDesktopBackend.ps1' in windows_launcher,
+              'launcher retries primary AutoFix': 'Re-running the complete Windows readiness check' in windows_launcher,
+              'backend service recycle': "com.docker.service" in windows_backend and 'Restart-DockerWindowsService' in windows_backend,
+              'stale backend process cleanup': 'Stop-StaleDockerProcesses' in windows_backend and 'com.docker.backend' in windows_backend,
+              'docker-desktop WSL terminate': 'wsl.exe --terminate docker-desktop' in windows_backend,
+              'full WSL backend shutdown': 'wsl.exe --shutdown' in windows_backend,
+              'bounded final Desktop restart': 'desktop restart --timeout 180' in windows_backend,
+              'non-destructive diagnostic log': 'docker-backend-recovery-' in windows_backend,
+          }
+          missing_windows_backend = [name for name, ok in windows_backend_requirements.items() if not ok]
+          if missing_windows_backend:
+              raise SystemExit('Windows Docker backend recovery contract incomplete: ' + ', '.join(missing_windows_backend))
+
+          forbidden_backend_actions = (
+              '--unregister docker-desktop',
+              '--unregister docker-desktop-data',
+              'factory reset',
+              'docker system prune',
+              'Remove-Item -Recurse',
+          )
+          for forbidden in forbidden_backend_actions:
+              if forbidden.lower() in windows_backend.lower():
+                  raise SystemExit(f'Windows backend recovery must remain non-destructive: found {forbidden}')
 
           required = {
               'manager restart': 'restart wazuh.manager' in recovery,
