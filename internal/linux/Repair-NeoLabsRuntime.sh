@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VALIDATE_ONLY=0
 DAEMON_WAIT_SECONDS="${NEOLABS_DOCKER_WAIT_SECONDS:-45}"
+LOCAL_DOCKER_HOST="unix:///var/run/docker.sock"
 
 log() { printf '[NeoLabs AutoFix] %s\n' "$*"; }
 ok() { printf '[OK] %s\n' "$*"; }
@@ -25,6 +26,49 @@ run_root() {
   else
     fail "NeoLabs AutoFix needs administrator privileges for Linux packages, Docker service repair and kernel settings. Install sudo or ask the machine administrator to run the prerequisite setup once."
   fi
+}
+
+docker_user_local_ostype() {
+  local value=""
+  value="$(env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  [[ "$value" == "linux" ]] || return 1
+  printf '%s\n' "$value"
+}
+
+docker_root_local_ostype() {
+  local value=""
+  if (( EUID == 0 )); then
+    value="$(env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  else
+    value="$(run_root env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  fi
+  [[ "$value" == "linux" ]] || return 1
+  printf '%s\n' "$value"
+}
+
+daemon_healthy() {
+  local value=""
+  value="$(docker info --format '{{.OSType}}' 2>/dev/null || true)"
+  [[ "$value" == "linux" ]] && return 0
+
+  # A stale DOCKER_CONTEXT/DOCKER_HOST can make a healthy local server look dead.
+  # Probe the actual native Docker socket before any service restart or package work.
+  value="$(docker_user_local_ostype 2>/dev/null || true)"
+  [[ "$value" == "linux" ]] && return 0
+
+  value="$(docker_root_local_ostype 2>/dev/null || true)"
+  [[ "$value" == "linux" ]]
+}
+
+wait_for_docker() {
+  local seconds="$1"
+  local deadline=$((SECONDS + seconds))
+  while (( SECONDS < deadline )); do
+    daemon_healthy && return 0
+    sleep 2
+  done
+  # Avoid declaring failure when dockerd becomes ready on the timeout boundary.
+  daemon_healthy
 }
 
 save_diagnostics() {
@@ -49,12 +93,23 @@ save_diagnostics() {
     df -h 2>&1 || true
     printf '\n=== VM.MAX_MAP_COUNT ===\n'
     cat /proc/sys/vm/max_map_count 2>&1 || true
+    printf '\n=== DOCKER ENVIRONMENT ===\n'
+    printf 'DOCKER_HOST=%s\n' "${DOCKER_HOST:-<unset>}"
+    printf 'DOCKER_CONTEXT=%s\n' "${DOCKER_CONTEXT:-<unset>}"
     printf '\n=== DOCKER VERSION ===\n'
     docker version 2>&1 || true
     printf '\n=== DOCKER COMPOSE ===\n'
     docker compose version 2>&1 || true
-    printf '\n=== DOCKER INFO ===\n'
+    printf '\n=== DOCKER INFO (CALLER ENV) ===\n'
     docker info 2>&1 || true
+    printf '\n=== DOCKER INFO (LOCAL SOCKET, USER) ===\n'
+    env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info 2>&1 || true
+    printf '\n=== DOCKER INFO (LOCAL SOCKET, ROOT) ===\n'
+    if (( EUID == 0 )); then
+      env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info 2>&1 || true
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info 2>&1 || true
+    fi
     printf '\n=== DOCKER SERVICE ===\n'
     if command -v systemctl >/dev/null 2>&1; then
       systemctl status docker --no-pager -l 2>&1 || true
@@ -87,6 +142,7 @@ trap on_error ERR
 if (( VALIDATE_ONLY )); then
   command -v bash >/dev/null 2>&1 || fail "bash is required"
   [[ -f "${ROOT_DIR}/start-neolabs-soc.sh" ]] || fail "Root Linux launcher is missing"
+  [[ "$LOCAL_DOCKER_HOST" == "unix:///var/run/docker.sock" ]] || fail "Native Docker endpoint contract changed unexpectedly"
   ok "Linux AutoFix contract is valid."
   exit 0
 fi
@@ -208,22 +264,6 @@ restart_docker_service() {
   fi
 }
 
-daemon_healthy() {
-  if docker info >/dev/null 2>&1; then return 0; fi
-  if (( EUID == 0 )); then return 1; fi
-  run_root docker info >/dev/null 2>&1
-}
-
-wait_for_docker() {
-  local seconds="$1"
-  local deadline=$((SECONDS + seconds))
-  while (( SECONDS < deadline )); do
-    daemon_healthy && return 0
-    sleep 2
-  done
-  return 1
-}
-
 upgrade_official_docker_packages() {
   dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed' || return 1
   log "Updating the installed Docker Engine packages as a bounded recovery step..."
@@ -242,7 +282,7 @@ ensure_docker_engine() {
   if wait_for_docker "$DAEMON_WAIT_SECONDS"; then
     ok "Docker Engine is healthy."
   else
-    warn "Docker is installed but its daemon is not responding. Restarting the service automatically."
+    warn "The local Docker engine is genuinely not responding. Restarting the service automatically."
     restart_docker_service
     if wait_for_docker 45; then
       ok "Docker recovered after service restart."
@@ -252,19 +292,27 @@ ensure_docker_engine() {
         restart_docker_service
       fi
       if ! wait_for_docker 60; then
-        save_diagnostics "Docker daemon did not recover after service restart and package recovery."
-        trap - ERR
-        exit 1
+        # One short final grace probe protects against a daemon becoming ready just
+        # after package/service recovery reaches its nominal timeout.
+        if ! wait_for_docker 15; then
+          save_diagnostics "Docker daemon did not recover after service restart and package recovery."
+          trap - ERR
+          exit 1
+        fi
       fi
       ok "Docker recovered after package repair."
     fi
   fi
 
-  if ! docker info >/dev/null 2>&1 && (( EUID != 0 )) && run_root docker info >/dev/null 2>&1; then
-    log "Granting ${USER} Docker access so interns do not need sudo for Wazuh commands..."
-    run_root groupadd -f docker
-    run_root usermod -aG docker "$USER"
-    warn "Docker group membership was repaired. The main launcher will refresh it automatically for this run when possible."
+  if ! docker info >/dev/null 2>&1 && (( EUID != 0 )); then
+    if [[ "$(docker_user_local_ostype 2>/dev/null || true)" == "linux" ]]; then
+      warn "Docker is healthy on the native local socket, but this shell has a stale Docker context/host. The root launcher will bind this NeoLabs run to the local engine without changing the user's global Docker configuration."
+    elif [[ "$(docker_root_local_ostype 2>/dev/null || true)" == "linux" ]]; then
+      log "Granting ${USER} Docker access so interns do not need sudo for Wazuh commands..."
+      run_root groupadd -f docker
+      run_root usermod -aG docker "$USER"
+      warn "Docker group membership was repaired. The main launcher will refresh it automatically for this run when possible."
+    fi
   fi
 }
 
