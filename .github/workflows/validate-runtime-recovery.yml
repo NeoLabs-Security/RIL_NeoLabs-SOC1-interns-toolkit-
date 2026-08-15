@@ -70,10 +70,6 @@ jobs:
           if missing_cert:
               raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
 
-          # Wazuh reserves these as static decoder fields. A custom rule must use
-          # the dedicated tags (for example <action> and <status>) instead of
-          # <field name="...">. This guard catches the exact semantic error that
-          # made wazuh-analysisd reject rule 100130 on the Ubuntu cohort.
           static_fields = {
               'user', 'srcip', 'dstip', 'srcport', 'dstport', 'protocol',
               'action', 'id', 'url', 'data', 'extra_data', 'status', 'system_name',
@@ -163,4 +159,4 @@ jobs:
             --entrypoint /bin/bash \
             -v "$GITHUB_WORKSPACE/wazuh-stack/config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro" \
             wazuh/wazuh-manager:4.14.7 \
-            -lc '/var/ossec/bin/wazuh-analysisd -t'
+            -lc 'cd /var/ossec && bin/wazuh-analysisd -t'
