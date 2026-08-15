@@ -28,6 +28,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import xml.etree.ElementTree as ET
 
           start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
@@ -38,6 +39,7 @@ jobs:
           windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           windows_backend = Path('internal/windows/Recover-DockerDesktopBackend.ps1').read_text(encoding='utf-8')
           windows_launcher = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          rules_path = Path('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
 
           if 'repair-certificate-permissions.sh' not in prepare:
               raise SystemExit('prepare-stack.sh must repair/verify generated certificate permissions before succeeding')
@@ -67,6 +69,27 @@ jobs:
           missing_cert = [name for name, ok in cert_requirements.items() if not ok]
           if missing_cert:
               raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
+
+          # Wazuh reserves these decoder keys as static fields. Custom rules must
+          # use the dedicated rule element (for example <action> or <status>)
+          # instead of treating them as dynamic <field name="..."> values.
+          static_fields = {
+              'user', 'srcip', 'dstip', 'srcport', 'dstport', 'protocol',
+              'action', 'id', 'url', 'data', 'extra_data', 'status', 'system_name',
+          }
+          wrapped = '<root>' + rules_path.read_text(encoding='utf-8') + '</root>'
+          rules_xml = ET.fromstring(wrapped)
+          violations = []
+          for field in rules_xml.findall('.//field'):
+              name = (field.attrib.get('name') or '').strip()
+              if name in static_fields:
+                  violations.append(name)
+          if violations:
+              raise SystemExit('Wazuh static fields must use dedicated rule tags, not <field name=...>: ' + ', '.join(sorted(set(violations))))
+
+          rules_text = rules_path.read_text(encoding='utf-8')
+          if '<action type="pcre2">' not in rules_text or '<status type="pcre2">' not in rules_text:
+              raise SystemExit('NeoLabs action/status filters must use Wazuh static-field rule tags')
 
           if './scripts/recover-runtime.sh' not in start and 'bash ./scripts/recover-runtime.sh' not in start:
               raise SystemExit('Wazuh start.sh must route through bounded runtime recovery')
