@@ -29,29 +29,47 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Windows launcher uses package-safe CLI invocation
+      - name: Verify Windows launcher contracts
         shell: powershell
         run: |
-          $path = '.\internal\windows\Start-NeoLabsSOC.ps1'
-          $text = Get-Content $path -Raw
-          if ($text -notmatch 'python3\s+-m\s+tools\.cli') {
+          $socPath = '.\internal\windows\Start-NeoLabsSOC.ps1'
+          $dockerPath = '.\internal\windows\Start-NeoLabsDocker.ps1'
+          $socText = Get-Content $socPath -Raw
+          $dockerText = Get-Content $dockerPath -Raw
+
+          if ($socText -notmatch 'python3\s+-m\s+tools\.cli') {
             throw 'Windows launcher must invoke the NeoLabs CLI as: python3 -m tools.cli'
           }
-          if ($text -match 'python3\s+tools[/\\]cli\.py') {
-            throw 'Windows launcher must not invoke tools/cli.py directly; this can reintroduce Python import-path failures.'
+          if ($socText -match 'python3\s+tools[/\\]cli\.py') {
+            throw 'Windows launcher must not invoke tools/cli.py directly.'
           }
-          if ($text -notmatch "Require-RepoFile 'tools\\__init__\.py'") {
+          if ($socText -notmatch "Require-RepoFile 'tools\\__init__\.py'") {
             throw 'Windows launcher must verify the tools package marker exists.'
           }
-      - name: Validate Windows launcher parser and root contract
+          if ($dockerText -notmatch "desktop status") {
+            throw 'Docker bootstrap must check Docker Desktop status.'
+          }
+          if ($dockerText -notmatch "desktop-linux") {
+            throw 'Docker bootstrap must prefer the Docker Desktop Linux context.'
+          }
+          if ($dockerText -notmatch "DOCKER_CONTEXT") {
+            throw 'Docker bootstrap must scope the Docker Desktop context to the NeoLabs process.'
+          }
+          if ($dockerText -notmatch "Wait-WslDocker") {
+            throw 'Docker bootstrap must verify Docker from inside the selected WSL2 distro.'
+          }
+
+      - name: Validate Windows PowerShell parsers and root contract
         shell: powershell
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\internal\windows\Start-NeoLabsSOC.ps1'), [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | Format-List | Out-String | Write-Error
-            exit 1
+          foreach ($path in @('.\internal\windows\Start-NeoLabsSOC.ps1', '.\internal\windows\Start-NeoLabsDocker.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+            }
           }
           cmd /c START-NEOLABS-SOC.cmd -ValidateOnly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
