@@ -1,0 +1,90 @@
+name: Validate Linux Docker runtime correlation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  linux-docker-runtime-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and validate Linux runtime helpers
+        run: |
+          set -euo pipefail
+          bash -n start-neolabs-soc.sh
+          bash -n internal/linux/Repair-NeoLabsRuntime.sh
+          bash internal/linux/Repair-NeoLabsRuntime.sh --validate-only
+          bash start-neolabs-soc.sh --validate-only
+
+      - name: Guard native Docker false-negative recovery
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          launcher = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          repair = Path('internal/linux/Repair-NeoLabsRuntime.sh').read_text(encoding='utf-8')
+
+          launcher_requirements = {
+              'local Docker socket contract': 'LOCAL_DOCKER_HOST="unix:///var/run/docker.sock"' in launcher,
+              'local socket probe ignores stale context': 'env -u DOCKER_CONTEXT DOCKER_HOST="$LOCAL_DOCKER_HOST" docker info --format' in launcher,
+              'process-only local endpoint pin': 'unset DOCKER_CONTEXT' in launcher and 'export DOCKER_HOST="$LOCAL_DOCKER_HOST"' in launcher,
+              'positive runtime precheck': 'Existing native Docker Linux runtime is healthy; skipping unnecessary service/package recovery.' in launcher,
+              'root local permission probe': 'root_native_docker_healthy' in launcher,
+              'automatic group refresh': 'exec sg docker -c' in launcher,
+              'WSL ownership boundary retained': 'native-Linux Docker AutoFix is intentionally skipped' in launcher,
+          }
+          missing = [name for name, ok in launcher_requirements.items() if not ok]
+          if missing:
+              raise SystemExit('Linux launcher Docker correlation contract incomplete: ' + ', '.join(missing))
+
+          precheck = launcher.index('Checking the Ubuntu/Debian Docker runtime before applying any repair')
+          autofix = launcher.index('bash internal/linux/Repair-NeoLabsRuntime.sh || fail', precheck)
+          if precheck >= autofix:
+              raise SystemExit('Native Docker positive confirmation must happen before Linux AutoFix escalation')
+
+          select_start = launcher.index('select_native_docker_endpoint()')
+          select_end = launcher.index('usage()', select_start)
+          select_body = launcher[select_start:select_end]
+          local_socket = select_body.index('[[ -S /var/run/docker.sock ]]')
+          current_context = select_body.index('native_docker_current_ostype')
+          if local_socket >= current_context:
+              raise SystemExit('Standard Ubuntu local socket must be preferred before accepting a custom/current Docker context')
+
+          repair_requirements = {
+              'local user engine probe': 'docker_user_local_ostype' in repair,
+              'local root engine probe': 'docker_root_local_ostype' in repair,
+              'caller environment recorded': '=== DOCKER ENVIRONMENT ===' in repair,
+              'user local diagnostics': '=== DOCKER INFO (LOCAL SOCKET, USER) ===' in repair,
+              'root local diagnostics': '=== DOCKER INFO (LOCAL SOCKET, ROOT) ===' in repair,
+              'timeout boundary re-probe': '# Avoid declaring failure when dockerd becomes ready on the timeout boundary.' in repair,
+              'final grace probe': 'One short final grace probe' in repair,
+              'stale context distinction': 'stale Docker context/host' in repair,
+          }
+          missing = [name for name, ok in repair_requirements.items() if not ok]
+          if missing:
+              raise SystemExit('Linux AutoFix Docker correlation contract incomplete: ' + ', '.join(missing))
+
+          daemon_start = repair.index('daemon_healthy()')
+          daemon_end = repair.index('wait_for_docker()', daemon_start)
+          daemon_body = repair[daemon_start:daemon_end]
+          if daemon_body.index('docker_user_local_ostype') > daemon_body.index('docker_root_local_ostype'):
+              raise SystemExit('Linux AutoFix must try the normal user local socket before elevated probing')
+
+          ensure_start = repair.index('ensure_docker_engine()')
+          ensure_body = repair[ensure_start:]
+          if ensure_body.index('wait_for_docker "$DAEMON_WAIT_SECONDS"') > ensure_body.index('restart_docker_service'):
+              raise SystemExit('Linux AutoFix must positively probe Docker before restarting the service')
+
+          forbidden = ('docker system prune', 'rm -rf /var/lib/docker', 'systemctl stop docker.socket')
+          for text in (launcher, repair):
+              for item in forbidden:
+                  if item in text:
+                      raise SystemExit('Linux Docker recovery must remain non-destructive: ' + item)
+          PY
