@@ -28,6 +28,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import xml.etree.ElementTree as ET
 
           start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
@@ -38,6 +39,7 @@ jobs:
           windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
           windows_backend = Path('internal/windows/Recover-DockerDesktopBackend.ps1').read_text(encoding='utf-8')
           windows_launcher = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
+          rules_path = Path('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
 
           if 'repair-certificate-permissions.sh' not in prepare:
               raise SystemExit('prepare-stack.sh must repair/verify generated certificate permissions before succeeding')
@@ -67,6 +69,28 @@ jobs:
           missing_cert = [name for name, ok in cert_requirements.items() if not ok]
           if missing_cert:
               raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
+
+          # Wazuh reserves these as static decoder fields. A custom rule must use
+          # the dedicated tags (for example <action> and <status>) instead of
+          # <field name="...">. This guard catches the exact semantic error that
+          # made wazuh-analysisd reject rule 100130 on the Ubuntu cohort.
+          static_fields = {
+              'user', 'srcip', 'dstip', 'srcport', 'dstport', 'protocol',
+              'action', 'id', 'url', 'data', 'extra_data', 'status', 'system_name',
+          }
+          wrapped = '<root>' + rules_path.read_text(encoding='utf-8') + '</root>'
+          rules_xml = ET.fromstring(wrapped)
+          violations = []
+          for field in rules_xml.findall('.//field'):
+              name = (field.attrib.get('name') or '').strip()
+              if name in static_fields:
+                  violations.append(name)
+          if violations:
+              raise SystemExit('Wazuh static fields must use dedicated rule tags, not <field name=...>: ' + ', '.join(sorted(set(violations))))
+
+          rules_text = rules_path.read_text(encoding='utf-8')
+          if '<action type="pcre2">' not in rules_text or '<status type="pcre2">' not in rules_text:
+              raise SystemExit('NeoLabs action/status filters must use Wazuh static-field rule tags')
 
           if './scripts/recover-runtime.sh' not in start and 'bash ./scripts/recover-runtime.sh' not in start:
               raise SystemExit('Wazuh start.sh must route through bounded runtime recovery')
@@ -126,3 +150,17 @@ jobs:
               if any(protected in line for line in volume_rm_lines):
                   raise SystemExit(f'Protected state must never be deleted by runtime recovery: {protected}')
           PY
+
+  wazuh-rule-semantic-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate NeoLabs rules with Wazuh 4.14.7 analysisd
+        run: |
+          docker pull wazuh/wazuh-manager:4.14.7
+          docker run --rm \
+            --entrypoint /bin/bash \
+            -v "$GITHUB_WORKSPACE/wazuh-stack/config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro" \
+            wazuh/wazuh-manager:4.14.7 \
+            -lc '/var/ossec/bin/wazuh-analysisd -t'
