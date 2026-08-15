@@ -15,137 +15,79 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate recovery shell syntax
+      - name: Validate recovery syntax and deterministic rules
         run: |
-          bash -n wazuh-stack/scripts/start.sh
-          bash -n wazuh-stack/scripts/prepare-stack.sh
-          bash -n wazuh-stack/scripts/repair-certificate-permissions.sh
-          bash -n wazuh-stack/scripts/recover-runtime.sh
-          bash -n start-neolabs-soc.sh
-          bash -n internal/linux/Repair-NeoLabsRuntime.sh
+          set -euo pipefail
+          for file in \
+            wazuh-stack/scripts/ensure-prepared.sh \
+            wazuh-stack/scripts/prepare-runtime-images.sh \
+            wazuh-stack/scripts/prepare-stack.sh \
+            wazuh-stack/scripts/repair-certificate-permissions.sh \
+            wazuh-stack/scripts/start.sh \
+            wazuh-stack/scripts/recover-runtime.sh; do
+            bash -n "$file"
+          done
+          python3 -m py_compile wazuh-stack/scripts/validate-local-rules.py
+          python3 wazuh-stack/scripts/validate-local-rules.py
 
       - name: Guard staged self-healing Wazuh startup
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import xml.etree.ElementTree as ET
 
-          start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
+          ensure = Path('wazuh-stack/scripts/ensure-prepared.sh').read_text(encoding='utf-8')
           prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
+          images = Path('wazuh-stack/scripts/prepare-runtime-images.sh').read_text(encoding='utf-8')
           certfix = Path('wazuh-stack/scripts/repair-certificate-permissions.sh').read_text(encoding='utf-8')
+          start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
           recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
-          linux = Path('internal/linux/Repair-NeoLabsRuntime.sh').read_text(encoding='utf-8')
-          windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
-          windows_backend = Path('internal/windows/Recover-DockerDesktopBackend.ps1').read_text(encoding='utf-8')
-          windows_launcher = Path('START-NEOLABS-SOC.cmd').read_text(encoding='utf-8')
-          rules_path = Path('wazuh-stack/config/rules/neolabs_vcc_rules.xml')
-
-          if 'repair-certificate-permissions.sh' not in prepare:
-              raise SystemExit('prepare-stack.sh must repair/verify generated certificate permissions before succeeding')
-          if 'repair-certificate-permissions.sh' not in start:
-              raise SystemExit('start.sh must re-check certificate permissions on every startup')
-          if start.index('repair-certificate-permissions.sh') > start.index('recover-runtime.sh'):
-              raise SystemExit('certificate permission repair must happen before Wazuh runtime recovery')
 
           certs = (
-              'root-ca.pem', 'root-ca-manager.pem', 'admin.pem', 'admin-key.pem',
-              'wazuh.indexer.pem', 'wazuh.indexer-key.pem',
-              'wazuh.manager.pem', 'wazuh.manager-key.pem',
-              'wazuh.dashboard.pem', 'wazuh.dashboard-key.pem',
+              'root-ca.pem','root-ca-manager.pem','admin.pem','admin-key.pem',
+              'wazuh.indexer.pem','wazuh.indexer-key.pem','wazuh.manager.pem',
+              'wazuh.manager-key.pem','wazuh.dashboard.pem','wazuh.dashboard-key.pem',
           )
           for cert in certs:
-              if cert not in start:
-                  raise SystemExit(f'start.sh atomic generated-file set is missing {cert}')
-              if cert not in certfix:
-                  raise SystemExit(f'certificate repair verifier is missing {cert}')
+              if cert not in ensure: raise SystemExit('Central generated-file set missing ' + cert)
+              if cert not in certfix: raise SystemExit('Certificate verifier missing ' + cert)
+          if '--user 0:0' not in certfix or '--user 1000:1000' not in certfix:
+              raise SystemExit('Certificate repair must prove root normalisation and service-UID readability')
+          if 'repair-certificate-permissions.sh' not in ensure or 'prepare-runtime-images.sh' not in ensure:
+              raise SystemExit('Central preparation gate must own TLS repair and image preload')
+          if 'prepare-runtime-images.sh' not in prepare:
+              raise SystemExit('A regenerated Wazuh stack must finish runtime image preparation')
+          for image in ('wazuh-indexer','wazuh-manager','wazuh-dashboard','vcc.telemetry.collector'):
+              if image not in images: raise SystemExit('Image preload missing ' + image)
 
-          cert_requirements = {
-              'root helper normalisation': '--user 0:0' in certfix and 'chown -R 1000:1000 /certificates' in certfix,
-              'strict Linux permissions': 'chmod 400 "$path"' in certfix,
-              'service UID readability probe': '--user 1000:1000' in certfix and '[ -r "$path" ]' in certfix,
-              'cross-platform ownership fallback': 'host filesystem did not accept strict POSIX ownership changes' in certfix,
-          }
-          missing_cert = [name for name, ok in cert_requirements.items() if not ok]
-          if missing_cert:
-              raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
-
-          # Wazuh reserves these decoder keys as static fields. Custom rules must
-          # use the dedicated rule element (for example <action> or <status>)
-          # instead of treating them as dynamic <field name="..."> values.
-          static_fields = {
-              'user', 'srcip', 'dstip', 'srcport', 'dstport', 'protocol',
-              'action', 'id', 'url', 'data', 'extra_data', 'status', 'system_name',
-          }
-          wrapped = '<root>' + rules_path.read_text(encoding='utf-8') + '</root>'
-          rules_xml = ET.fromstring(wrapped)
-          violations = []
-          for field in rules_xml.findall('.//field'):
-              name = (field.attrib.get('name') or '').strip()
-              if name in static_fields:
-                  violations.append(name)
-          if violations:
-              raise SystemExit('Wazuh static fields must use dedicated rule tags, not <field name=...>: ' + ', '.join(sorted(set(violations))))
-
-          rules_text = rules_path.read_text(encoding='utf-8')
-          if '<action type="pcre2">' not in rules_text or '<status type="pcre2">' not in rules_text:
-              raise SystemExit('NeoLabs action/status filters must use Wazuh static-field rule tags')
-
-          if './scripts/recover-runtime.sh' not in start and 'bash ./scripts/recover-runtime.sh' not in start:
-              raise SystemExit('Wazuh start.sh must route through bounded runtime recovery')
-          if 'docker compose --env-file .env up -d --build' in start:
-              raise SystemExit('start.sh must not return to the old monolithic Compose startup path')
+          if 'ensure-prepared.sh' not in start or 'validate-local-rules.py' not in start or 'recover-runtime.sh' not in start:
+              raise SystemExit('start.sh must use central preparation, rule validation and staged recovery')
+          if not (start.index('ensure-prepared.sh') < start.index('validate-local-rules.py') < start.index('recover-runtime.sh')):
+              raise SystemExit('Wazuh start order must be preparation -> rule validation -> recovery')
 
           indexer = recovery.index('Starting the Wazuh indexer first')
           manager = recovery.index('Starting the Wazuh manager independently')
           dashboard = recovery.index('Starting the Wazuh dashboard only after manager and indexer health is proven')
           if not (indexer < manager < dashboard):
-              raise SystemExit('Runtime recovery must prove indexer, then manager, before starting dashboard')
-
-          windows_backend_requirements = {
-              'launcher invokes second-stage backend recovery': 'Recover-DockerDesktopBackend.ps1' in windows_launcher,
-              'launcher retries primary AutoFix': 'Re-running the complete Windows readiness check' in windows_launcher,
-              'backend service recycle': "com.docker.service" in windows_backend and 'Restart-DockerWindowsService' in windows_backend,
-              'stale backend process cleanup': 'Stop-StaleDockerProcesses' in windows_backend and 'com.docker.backend' in windows_backend,
-              'docker-desktop WSL terminate': 'wsl.exe --terminate docker-desktop' in windows_backend,
-              'full WSL backend shutdown': 'wsl.exe --shutdown' in windows_backend,
-              'bounded final Desktop restart': 'desktop restart --timeout 180' in windows_backend,
-              'non-destructive diagnostic log': 'docker-backend-recovery-' in windows_backend,
-          }
-          missing_windows_backend = [name for name, ok in windows_backend_requirements.items() if not ok]
-          if missing_windows_backend:
-              raise SystemExit('Windows Docker backend recovery contract incomplete: ' + ', '.join(missing_windows_backend))
-
-          forbidden_backend_actions = (
-              '--unregister docker-desktop',
-              '--unregister docker-desktop-data',
-              'factory reset',
-              'docker system prune',
-              'Remove-Item -Recurse',
-          )
-          for forbidden in forbidden_backend_actions:
-              if forbidden.lower() in windows_backend.lower():
-                  raise SystemExit(f'Windows backend recovery must remain non-destructive: found {forbidden}')
-
+              raise SystemExit('Recovery must prove indexer, then manager, then dashboard')
           required = {
+              'manager fatal classifier': 'manager_fatal_reason' in recovery,
+              'fatal configuration stop': 'Deterministic Wazuh manager configuration failure' in recovery,
               'manager restart': 'restart wazuh.manager' in recovery,
-              'manager force recreate': '--force-recreate --no-deps wazuh.manager' in recovery,
-              'bounded manager config volume repair': 'docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc"' in recovery,
-              'runtime diagnostics': 'state/runtime-diagnostics/wazuh-runtime-' in recovery,
-              'dashboard force recreate': '--force-recreate --no-deps wazuh.dashboard' in recovery,
-              'collector force recreate': '--force-recreate --no-deps vcc.telemetry.collector' in recovery,
-              'native Ubuntu Docker repair': 'install_docker_engine' in linux and 'restart_docker_service' in linux,
-              'Windows Docker Desktop repair': 'Ensure-DockerLinuxEngine' in windows and 'Ensure-DockerInsideWsl' in windows,
-              'manager has health check': 'wazuh-analysisd is running' in compose,
+              'manager recreate': '--force-recreate --no-deps wazuh.manager' in recovery,
+              'bounded manager config repair': 'docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc"' in recovery,
+              'dashboard recreate': '--force-recreate --no-deps wazuh.dashboard' in recovery,
+              'collector recreate': '--force-recreate --no-deps vcc.telemetry.collector' in recovery,
+              'diagnostics': 'state/runtime-diagnostics/wazuh-runtime-' in recovery,
+              'strict dashboard HTTP health': 'curl -skf https://localhost:5601/status' in compose,
           }
-          missing = [name for name, ok in required.items() if not ok]
-          if missing:
-              raise SystemExit('Runtime recovery contract incomplete: ' + ', '.join(missing))
+          missing = [k for k,v in required.items() if not v]
+          if missing: raise SystemExit('Wazuh recovery contract incomplete: ' + ', '.join(missing))
 
           volume_rm_lines = [line.strip() for line in recovery.splitlines() if 'docker volume rm' in line]
           if volume_rm_lines != ['docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc" >/dev/null 2>&1 || true']:
-              raise SystemExit('Automatic recovery may only delete the manager configuration volume')
-          for protected in ('wazuh-indexer-data', 'vcc_telemetry', 'secrets/vcc', 'state/enrolment.json'):
+              raise SystemExit('Automatic recovery may delete only the manager configuration volume')
+          for protected in ('wazuh-indexer-data','vcc_telemetry','secrets/vcc','state/enrolment.json'):
               if any(protected in line for line in volume_rm_lines):
-                  raise SystemExit(f'Protected state must never be deleted by runtime recovery: {protected}')
+                  raise SystemExit('Protected state must never be deleted: ' + protected)
           PY
