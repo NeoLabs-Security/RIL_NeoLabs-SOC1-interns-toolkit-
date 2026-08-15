@@ -18,6 +18,8 @@ jobs:
       - name: Validate recovery shell syntax
         run: |
           bash -n wazuh-stack/scripts/start.sh
+          bash -n wazuh-stack/scripts/prepare-stack.sh
+          bash -n wazuh-stack/scripts/repair-certificate-permissions.sh
           bash -n wazuh-stack/scripts/recover-runtime.sh
           bash -n start-neolabs-soc.sh
           bash -n internal/linux/Repair-NeoLabsRuntime.sh
@@ -28,12 +30,43 @@ jobs:
           from pathlib import Path
 
           start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
+          prepare = Path('wazuh-stack/scripts/prepare-stack.sh').read_text(encoding='utf-8')
+          certfix = Path('wazuh-stack/scripts/repair-certificate-permissions.sh').read_text(encoding='utf-8')
           recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
           compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
           linux = Path('internal/linux/Repair-NeoLabsRuntime.sh').read_text(encoding='utf-8')
           windows = Path('internal/windows/Repair-NeoLabsRuntime.ps1').read_text(encoding='utf-8')
 
-          if './scripts/recover-runtime.sh' not in start:
+          if 'repair-certificate-permissions.sh' not in prepare:
+              raise SystemExit('prepare-stack.sh must repair/verify generated certificate permissions before succeeding')
+          if 'repair-certificate-permissions.sh' not in start:
+              raise SystemExit('start.sh must re-check certificate permissions on every startup')
+          if start.index('repair-certificate-permissions.sh') > start.index('recover-runtime.sh'):
+              raise SystemExit('certificate permission repair must happen before Wazuh runtime recovery')
+
+          certs = (
+              'root-ca.pem', 'root-ca-manager.pem', 'admin.pem', 'admin-key.pem',
+              'wazuh.indexer.pem', 'wazuh.indexer-key.pem',
+              'wazuh.manager.pem', 'wazuh.manager-key.pem',
+              'wazuh.dashboard.pem', 'wazuh.dashboard-key.pem',
+          )
+          for cert in certs:
+              if cert not in start:
+                  raise SystemExit(f'start.sh atomic generated-file set is missing {cert}')
+              if cert not in certfix:
+                  raise SystemExit(f'certificate repair verifier is missing {cert}')
+
+          cert_requirements = {
+              'root helper normalisation': '--user 0:0' in certfix and 'chown -R 1000:1000 /certificates' in certfix,
+              'strict Linux permissions': 'chmod 400 "$path"' in certfix,
+              'service UID readability probe': '--user 1000:1000' in certfix and '[ -r "$path" ]' in certfix,
+              'cross-platform ownership fallback': 'host filesystem did not accept strict POSIX ownership changes' in certfix,
+          }
+          missing_cert = [name for name, ok in cert_requirements.items() if not ok]
+          if missing_cert:
+              raise SystemExit('Certificate recovery contract incomplete: ' + ', '.join(missing_cert))
+
+          if './scripts/recover-runtime.sh' not in start and 'bash ./scripts/recover-runtime.sh' not in start:
               raise SystemExit('Wazuh start.sh must route through bounded runtime recovery')
           if 'docker compose --env-file .env up -d --build' in start:
               raise SystemExit('start.sh must not return to the old monolithic Compose startup path')
