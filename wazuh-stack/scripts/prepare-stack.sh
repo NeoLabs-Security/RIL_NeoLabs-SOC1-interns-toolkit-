@@ -103,6 +103,10 @@ mkdir -p "${GENERATED_DIR}/config/wazuh_indexer_ssl_certs"
   docker compose -f generate-indexer-certs.yml run --rm generator
 )
 
-chmod -R go-rwx "${GENERATED_DIR}/config/wazuh_indexer_ssl_certs" || true
+# The upstream 4.14.x cert-generator can complete generation while its own
+# final permission step emits errors on some hosts. Always apply and verify the
+# permissions ourselves before declaring preparation complete.
+bash "${ROOT_DIR}/scripts/repair-certificate-permissions.sh"
+
 printf 'Prepared Wazuh %s configuration from verified upstream commit %s.\n' "${WAZUH_VERSION}" "${actual_commit}"
 printf 'No Wazuh services were started. Run ./scripts/start.sh after preflight validation.\n'
