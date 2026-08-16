@@ -26,6 +26,7 @@ jobs:
             wazuh-stack/scripts/sync-indexer-security.sh \
             wazuh-stack/scripts/repair-certificate-permissions.sh \
             wazuh-stack/scripts/repair-telemetry-volume.sh \
+            wazuh-stack/scripts/stage-vcc-secrets.sh \
             wazuh-stack/scripts/repair-stale-bind-mounts.sh \
             wazuh-stack/scripts/verify-dashboard-api.sh \
             wazuh-stack/scripts/configure-dashboard-access.sh \
@@ -48,6 +49,7 @@ jobs:
           render = Path('wazuh-stack/scripts/render-runtime-credentials.sh').read_text(encoding='utf-8')
           sync = Path('wazuh-stack/scripts/sync-indexer-security.sh').read_text(encoding='utf-8')
           volume = Path('wazuh-stack/scripts/repair-telemetry-volume.sh').read_text(encoding='utf-8')
+          stage = Path('wazuh-stack/scripts/stage-vcc-secrets.sh').read_text(encoding='utf-8')
           stale = Path('wazuh-stack/scripts/repair-stale-bind-mounts.sh').read_text(encoding='utf-8')
           api = Path('wazuh-stack/scripts/verify-dashboard-api.sh').read_text(encoding='utf-8')
           images = Path('wazuh-stack/scripts/prepare-runtime-images.sh').read_text(encoding='utf-8')
@@ -69,15 +71,13 @@ jobs:
               if item not in ensure: raise SystemExit('Central generated-file set missing ' + item)
           if '--user 0:0' not in certfix or '--user 1000:1000' not in certfix:
               raise SystemExit('Certificate repair must prove root normalisation and service-UID readability')
-          for helper in ('render-runtime-credentials.sh','repair-certificate-permissions.sh','prepare-runtime-images.sh','repair-telemetry-volume.sh'):
+          for helper in ('render-runtime-credentials.sh','repair-certificate-permissions.sh','prepare-runtime-images.sh','stage-vcc-secrets.sh','repair-telemetry-volume.sh'):
               if helper not in ensure: raise SystemExit('Central preparation gate missing ' + helper)
           if 'render-runtime-credentials.sh' not in prepare or 'prepare-runtime-images.sh' not in prepare:
               raise SystemExit('Regenerated Wazuh stack must render credentials and prepare runtime images')
           for image in ('wazuh-indexer','wazuh-manager','wazuh-dashboard','vcc.telemetry.collector'):
               if image not in images: raise SystemExit('Image preload missing ' + image)
 
-          # Every dynamic NeoLabs rule field must be explicit PCRE2; static fields
-          # action/status use their dedicated tags and PCRE2 as well.
           for rule in rules.findall('.//rule'):
               for field in rule.findall('field'):
                   if field.attrib.get('type') != 'pcre2':
@@ -98,6 +98,18 @@ jobs:
                   raise SystemExit('Telemetry volume root helper must restore only required filesystem capability: ' + cap)
           if '.neolabs-write-probe-' not in volume or 'unprivileged collector still cannot write /data' not in volume:
               raise SystemExit('Telemetry volume repair must verify write access as the actual unprivileged collector')
+
+          # Private VCC host files are staged instead of relaxing 0700/0600 source
+          # permissions, and mutable collector state is isolated from host state/.
+          for needle in ('id -u collector','id -g collector','vcc_runtime_secrets','vcc_runtime_state','/state-source/assigned-pod','.neolabs-state-probe-'):
+              if needle not in stage:
+                  raise SystemExit('Collector staging contract missing ' + needle)
+          if './secrets/vcc:/run/vcc-secrets:ro' in compose or './state:/state' in compose:
+              raise SystemExit('Collector must not directly bind private host secret/state directories')
+          for needle in ('vcc_runtime_secrets:/run/vcc-secrets:ro','vcc_runtime_state:/runtime-state'):
+              if needle not in compose:
+                  raise SystemExit('Collector runtime volume missing ' + needle)
+
           if 'docker compose --env-file .env rm -sf' not in stale or 'previous toolkit directory' not in stale:
               raise SystemExit('Stale bind-mount migration is missing')
           if 'security/user/authenticate?raw=true' not in api or 'Authorization: Bearer' not in api:
@@ -129,20 +141,19 @@ jobs:
               'collector recreate': '--force-recreate --no-deps vcc.telemetry.collector' in recovery,
               'diagnostics': 'state/runtime-diagnostics/wazuh-runtime-' in recovery,
               'manager API health': 'wazuh-apid is running' in compose,
-              'strict dashboard HTTP health': 'curl -skf https://localhost:5601/status' in compose,
+              'dashboard login readiness': 'https://localhost:5601/login' in compose,
               'isolated core network retained': 'wazuh_internal:\n    internal: true' in compose,
               'separate dashboard access network': 'dashboard_access:' in compose,
+              'manager content-feed egress': 'manager_egress:' in compose,
           }
           missing = [k for k,v in required.items() if not v]
           if missing: raise SystemExit('Wazuh recovery contract incomplete: ' + ', '.join(missing))
 
-          # Only manager config may be removed automatically. Stale containers can
-          # be recreated, but protected named volumes/data must remain untouched.
           volume_rm_lines = [line.strip() for line in recovery.splitlines() if 'docker volume rm' in line]
           if volume_rm_lines != ['docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc" >/dev/null 2>&1 || true']:
               raise SystemExit('Automatic recovery may delete only the manager configuration volume')
           protected = ('wazuh-indexer-data','vcc_telemetry','secrets/vcc','state/enrolment.json')
-          for text in (recovery, volume, stale, sync):
+          for text in (recovery, volume, stage, stale, sync):
               for destructive in ('docker system prune','rm -rf /var/lib/docker','docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh-indexer-data"'):
                   if destructive in text:
                       raise SystemExit('Protected runtime recovery became destructive: ' + destructive)

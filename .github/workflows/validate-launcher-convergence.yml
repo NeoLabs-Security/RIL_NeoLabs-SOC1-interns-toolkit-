@@ -28,6 +28,7 @@ jobs:
           bash -n wazuh-stack/scripts/ensure-prepared.sh
           bash -n wazuh-stack/scripts/prepare-runtime-images.sh
           bash -n wazuh-stack/scripts/prepare-stack.sh
+          bash -n wazuh-stack/scripts/stage-vcc-secrets.sh
           bash -n wazuh-stack/scripts/start.sh
           bash -n wazuh-stack/scripts/recover-runtime.sh
           python3 -m py_compile wazuh-stack/scripts/validate-local-rules.py
@@ -77,6 +78,8 @@ jobs:
                   raise SystemExit('Central preparation gate is missing TLS artifact: ' + cert)
           if 'prepare-runtime-images.sh' not in ensure or 'prepare-runtime-images.sh' not in prepare:
               raise SystemExit('Runtime image preload must be part of both preparation repair and verification')
+          if 'stage-vcc-secrets.sh' not in ensure:
+              raise SystemExit('Central preparation must stage private VCC collector inputs before startup')
           for image in ('wazuh-indexer', 'wazuh-manager', 'wazuh-dashboard'):
               if image not in images:
                   raise SystemExit('Runtime image preload is missing ' + image)
@@ -89,8 +92,10 @@ jobs:
               raise SystemExit('Rule validation must happen before Wazuh recovery')
           if 'manager_fatal_reason' not in recovery or 'Deterministic Wazuh manager configuration failure' not in recovery:
               raise SystemExit('Wazuh recovery must fail fast on deterministic manager configuration errors')
-          if 'curl -skf https://localhost:5601/status' not in compose:
-              raise SystemExit('Dashboard healthcheck must fail on HTTP errors')
+          if '["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]' not in compose:
+              raise SystemExit('Dashboard readiness must require a successful /login HTTP response')
+          if 'localhost:5601/status' in compose:
+              raise SystemExit('Protected dashboard /status endpoint must not drive Docker health')
 
           forbidden = ('docker system prune', 'rm -rf /var/lib/docker', '--unregister docker-desktop', 'factory reset')
           for path in (linux, common, ensure, recovery):

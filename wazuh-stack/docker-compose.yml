@@ -48,6 +48,7 @@ services:
       start_period: 90s
     networks:
       - wazuh_internal
+      - manager_egress
 
   wazuh.indexer:
     image: wazuh/wazuh-indexer:${WAZUH_VERSION}
@@ -108,7 +109,10 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -skf https://localhost:5601/status >/dev/null"]
+      # /status is protected and returned HTTP 401 to the anonymous probe on live
+      # Wazuh 4.14.7 hosts. Probe the public login surface and still require a
+      # successful HTTP response; authenticated dashboard->manager API is separate.
+      test: ["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]
       interval: 30s
       timeout: 10s
       retries: 15
@@ -130,14 +134,15 @@ services:
       VCC_CLIENT_KEY_PATH: /run/vcc-secrets/client.key
       VCC_CA_CERT_PATH: /run/vcc-secrets/ca.crt
       VCC_INSTALLATION_ID_PATH: /run/vcc-secrets/installation-id
-      VCC_TELEMETRY_CURSOR_PATH: /state/vcc-telemetry.cursor
+      VCC_ASSIGNED_POD_PATH: /runtime-state/assigned-pod
+      VCC_TELEMETRY_CURSOR_PATH: /runtime-state/vcc-telemetry.cursor
       VCC_OUTPUT_PATH: /data/vcc-events.ndjson
-      VCC_HEALTH_PATH: /state/collector-health.json
+      VCC_HEALTH_PATH: /runtime-state/collector-health.json
       VCC_POLL_INTERVAL_SECONDS: ${VCC_POLL_INTERVAL_SECONDS:-15}
     volumes:
       - vcc_telemetry:/data
-      - ./state:/state
-      - ./secrets/vcc:/run/vcc-secrets:ro
+      - vcc_runtime_state:/runtime-state
+      - vcc_runtime_secrets:/run/vcc-secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "python /app/healthcheck.py"]
       interval: 30s
@@ -170,11 +175,16 @@ volumes:
   wazuh-dashboard-config:
   wazuh-dashboard-custom:
   vcc_telemetry:
+  vcc_runtime_secrets:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_secrets
+    external: true
+  vcc_runtime_state:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_state
+    external: true
 
 networks:
-  # Manager/indexer traffic remains isolated. The dashboard gets a second bridge
-  # only for host-port publishing instead of making the whole Wazuh network egress-capable.
   wazuh_internal:
     internal: true
   dashboard_access:
+  manager_egress:
   vcc_egress:
