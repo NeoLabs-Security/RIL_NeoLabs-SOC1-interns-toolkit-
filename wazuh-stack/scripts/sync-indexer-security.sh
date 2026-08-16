@@ -44,6 +44,7 @@ log 'Applying the current generated OpenSearch security configuration to the per
 # or the current admin password cannot authenticate.
 docker compose --env-file .env exec -T wazuh.indexer bash -lc '
   set -e
+  export JAVA_HOME=/usr/share/wazuh-indexer/jdk
   tool=/usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh
   conf=/usr/share/wazuh-indexer/config/opensearch-security
   certs=/usr/share/wazuh-indexer/config/certs
@@ -53,7 +54,7 @@ docker compose --env-file .env exec -T wazuh.indexer bash -lc '
     -cacert "$certs/root-ca.pem" \
     -cert "$certs/admin.pem" \
     -key "$certs/admin-key.pem" \
-    -p 9200 -icl
+    -h 127.0.0.1 -p 9200 -icl
 '
 
 for _ in $(seq 1 30); do
