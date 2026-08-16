@@ -8,7 +8,10 @@ cd "$ROOT_DIR"
 # Wazuh entrypoint. It owns the complete generated TLS/config set and image preload.
 bash ./scripts/ensure-prepared.sh
 
-./scripts/preflight.sh
+# Internal helper scripts are intentionally safe to invoke through Bash rather
+# than relying on Git executable-mode preservation. This keeps `neolabs connect`
+# working on existing/cross-platform checkouts where helper files are mode 0644.
+bash ./scripts/preflight.sh
 
 # Catch deterministic custom-rule mistakes before spending minutes restarting or
 # recreating a manager container that can never become healthy.
@@ -25,16 +28,16 @@ printf 'Starting Wazuh through the NeoLabs bounded runtime recovery path...\n'
 bash ./scripts/recover-runtime.sh
 
 printf 'Wazuh services were started. Waiting for final health checks...\n'
-./scripts/health-check.sh --wait 600
+bash ./scripts/health-check.sh --wait 600
 
 # Post-start UX/maintenance is deliberately fail-soft. A dashboard-object or
 # retention-policy provisioning problem must never tear down an otherwise
 # healthy Wazuh stack or change VCC server/pod state.
 printf 'Applying NeoLabs local retention and dashboard defaults...\n'
-if ! ./scripts/configure-index-retention.sh; then
+if ! bash ./scripts/configure-index-retention.sh; then
   printf '[WARN] Local retention policy provisioning did not complete; Wazuh remains available. Run neolabs doctor for details.\n' >&2
 fi
-if ! ./scripts/provision-dashboard-objects.sh; then
+if ! bash ./scripts/provision-dashboard-objects.sh; then
   printf '[WARN] Night Watch saved-object provisioning did not complete; core Threat Hunting remains available.\n' >&2
 fi
-./scripts/disk-warning.sh || true
+bash ./scripts/disk-warning.sh || true
