@@ -48,6 +48,9 @@ services:
       start_period: 90s
     networks:
       - wazuh_internal
+      # Wazuh's vulnerability/content updater requires DNS/HTTPS egress. Keep the
+      # indexer isolated and give only the manager a separate outbound bridge.
+      - manager_egress
 
   wazuh.indexer:
     image: wazuh/wazuh-indexer:${WAZUH_VERSION}
@@ -108,7 +111,10 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -skf https://localhost:5601/status >/dev/null"]
+      # /status is protected by OpenSearch Dashboards security in Wazuh 4.14.7.
+      # Probe it with the already-present indexer credential rather than treating
+      # the expected unauthenticated HTTP 401 as an unhealthy dashboard.
+      test: ["CMD-SHELL", "curl -skf -u \"$${INDEXER_USERNAME}:$${INDEXER_PASSWORD}\" https://localhost:5601/status >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 15
@@ -137,7 +143,9 @@ services:
     volumes:
       - vcc_telemetry:/data
       - ./state:/state
-      - ./secrets/vcc:/run/vcc-secrets:ro
+      # Host enrolment secrets stay 0700/0600. A bounded staging helper copies
+      # only the required files into this collector-owned read-only runtime volume.
+      - vcc_runtime_secrets:/run/vcc-secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "python /app/healthcheck.py"]
       interval: 30s
@@ -170,11 +178,17 @@ volumes:
   wazuh-dashboard-config:
   wazuh-dashboard-custom:
   vcc_telemetry:
+  # Created by scripts/stage-vcc-secrets.sh before Compose starts the collector.
+  # Marking it external prevents a normal Compose teardown from deleting mTLS state.
+  vcc_runtime_secrets:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_secrets
+    external: true
 
 networks:
-  # Manager/indexer traffic remains isolated. The dashboard gets a second bridge
-  # only for host-port publishing instead of making the whole Wazuh network egress-capable.
+  # Manager/indexer traffic remains isolated. Dashboard and manager receive
+  # separate bridges only for the specific host-access/egress capabilities needed.
   wazuh_internal:
     internal: true
   dashboard_access:
+  manager_egress:
   vcc_egress:
