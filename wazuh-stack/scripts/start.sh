@@ -24,8 +24,36 @@ docker compose --env-file .env config --quiet
 # named volumes/indexer data/telemetry are preserved and recovery recreates them.
 bash ./scripts/repair-stale-bind-mounts.sh
 
+# First-run dashboard/API state legitimately has no applied fingerprint yet. Create
+# an empty marker once so recover-runtime can treat it as "not yet applied" without
+# Bash printing a misleading missing-file error. Never overwrite a real fingerprint.
+mkdir -p state
+if [[ ! -e state/dashboard-api.applied.sha256 ]]; then
+  : > state/dashboard-api.applied.sha256
+  chmod 600 state/dashboard-api.applied.sha256 2>/dev/null || true
+fi
+
 printf 'Starting Wazuh through the NeoLabs bounded runtime recovery path...\n'
-bash ./scripts/recover-runtime.sh
+printf '[INFO] First dashboard startup can take a few minutes. NeoLabs will print a heartbeat while health checks are still running.\n'
+
+# recover-runtime intentionally performs bounded waits while Wazuh services warm up.
+# Run it as a foreground-owned child with a lightweight heartbeat so a healthy slow
+# dashboard does not look like a frozen launcher on lower-resource intern machines.
+recovery_rc=0
+recovery_elapsed=0
+bash ./scripts/recover-runtime.sh &
+recovery_pid=$!
+while kill -0 "$recovery_pid" 2>/dev/null; do
+  sleep 5
+  recovery_elapsed=$((recovery_elapsed + 5))
+  if (( recovery_elapsed % 20 == 0 )) && kill -0 "$recovery_pid" 2>/dev/null; then
+    printf '[WAIT] Wazuh startup/recovery is still progressing (%ss elapsed)...\n' "$recovery_elapsed"
+  fi
+done
+wait "$recovery_pid" || recovery_rc=$?
+if (( recovery_rc != 0 )); then
+  exit "$recovery_rc"
+fi
 
 printf 'Wazuh services were started. Waiting for final health checks...\n'
 bash ./scripts/health-check.sh --wait 600
