@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 WAIT_SECONDS=0
@@ -23,6 +24,24 @@ service_health() {
   printf '%s/%s' "${state}" "${health}"
 }
 
+server_issued_pod() {
+  if [[ -s state/assigned-pod ]]; then
+    tr -d '\r\n' < state/assigned-pod
+    return
+  fi
+  local manifest="${REPO_ROOT}/runtime/access-manifest.json"
+  [[ -f "$manifest" ]] || return 0
+  python3 - "$manifest" <<'PY'
+import json,re,sys
+try:
+    pod=str(json.load(open(sys.argv[1], encoding='utf-8')).get('pod_id') or '')
+except Exception:
+    pod=''
+if re.fullmatch(r'pod-[0-9]{2}', pod):
+    print(pod)
+PY
+}
+
 while true; do
   all_healthy=true
   printf 'NeoLabs Wazuh health status:\n'
@@ -39,10 +58,11 @@ while true; do
     # shellcheck disable=SC1091
     source .env
     printf 'Dashboard: https://%s:%s\n' "${WAZUH_DASHBOARD_BIND}" "${WAZUH_DASHBOARD_PORT}"
-    if [[ -f state/assigned-pod ]]; then
-      printf 'Server-issued pod: %s\n' "$(tr -d '\r\n' < state/assigned-pod)"
+    pod="$(server_issued_pod | tail -n1 | tr -d '\r\n')"
+    if [[ "$pod" =~ ^pod-[0-9]{2}$ ]]; then
+      printf 'Server-issued pod: %s\n' "$pod"
     else
-      printf 'Server-issued pod: UNENROLLED\n'
+      printf 'Server-issued pod: PENDING LOGIN/ASSIGNMENT\n'
     fi
     exit 0
   fi
