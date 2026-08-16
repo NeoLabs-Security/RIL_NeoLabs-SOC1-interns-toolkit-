@@ -109,7 +109,10 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-k", "-s", "-o", "/dev/null", "https://localhost:5601/login"]
+      # /status is protected and returned HTTP 401 to the anonymous probe on live
+      # Wazuh 4.14.7 hosts. Probe the public login surface and still require a
+      # successful HTTP response; authenticated dashboard->manager API is separate.
+      test: ["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]
       interval: 30s
       timeout: 10s
       retries: 15
