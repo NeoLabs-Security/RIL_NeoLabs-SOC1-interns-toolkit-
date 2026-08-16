@@ -142,9 +142,9 @@ if [[ "$HOST_MODE" == linux && "$dashboard_bind" == 0.0.0.0 ]]; then
 fi
 printf 'Username:   admin\n'
 if [[ "$HOST_MODE" == linux && -t 1 && "${NEOLABS_HIDE_DASHBOARD_PASSWORD:-0}" != 1 ]]; then
-  # Requested cohort UX: the local Wazuh login is available as soon as the stack
-  # is healthy; it is no longer gated on whether the VCC server has emitted an
-  # event. Never write this value to repository/runtime diagnostic files.
+  # The dashboard login is available as soon as Wazuh and its API are healthy.
+  # Final SOC WORKSTATION READY is still gated on assigned-pod Night Watch telemetry.
+  # Never write this value to repository/runtime diagnostic files.
   printf 'Password:   %s\n' "${WAZUH_INDEXER_PASSWORD}"
   printf '             (private local credential; do not post/share terminal screenshots containing it)\n'
 else
@@ -155,50 +155,26 @@ printf '[OK] Manager, indexer, dashboard, collector and dashboard API connector 
 log 'Confirming current pod/scenario status...'
 python3 -m tools.cli status || fail 'Final NeoLabs status check failed.'
 
-telemetry_ready=0
-log 'Checking whether assigned-pod VCC telemetry is already searchable in Wazuh...'
+# Operation Night Watch is deployed with traffic enabled for pod-01 through
+# pod-05. A connected SOC intern therefore must receive telemetry for the
+# server-assigned pod. Give normal delivery/indexing a bounded window, then
+# perform one safe local/replay repair; never declare final READY without proof.
+log 'Waiting for assigned-pod Operation Night Watch telemetry to become searchable in Wazuh...'
 telemetry_rc=0
-bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 90 || telemetry_rc=$?
-case "$telemetry_rc" in
-  0)
-    telemetry_ready=1
-    ;;
-  3)
-    warn 'The local Wazuh path is healthy, but the VCC server has not emitted an assigned-pod event yet. The dashboard remains fully usable while telemetry is pending.'
-    ;;
-  2)
-    fail 'NeoLabs custom rules failed the live Wazuh rule-engine verification.'
-    ;;
-  *)
-    warn 'Telemetry exists or should exist, but the local telemetry-to-indexer path is not healthy yet. Attempting one bounded repair.'
-    repair_rc=0
-    bash wazuh-stack/scripts/repair-telemetry-pipeline.sh || repair_rc=$?
-    if (( repair_rc != 0 )); then
-      fail 'The local telemetry-to-indexer path could not be repaired safely.'
-    fi
-    telemetry_rc=0
-    bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 90 || telemetry_rc=$?
-    case "$telemetry_rc" in
-      0) telemetry_ready=1 ;;
-      3) warn 'Local repair succeeded; the stack is waiting only for the first/current VCC pod event.' ;;
-      *) fail 'Assigned-pod telemetry is still not searchable after local repair.' ;;
-    esac
-    ;;
-esac
-
-if (( telemetry_ready )); then
-  log 'Checking latest-event freshness...'
-  bash wazuh-stack/scripts/telemetry-freshness.sh || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
+bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180 || telemetry_rc=$?
+if (( telemetry_rc == 2 )); then
+  fail 'NeoLabs custom rules failed the live Wazuh rule-engine verification.'
+elif (( telemetry_rc != 0 )); then
+  warn 'Night Watch telemetry is expected for this pod but is not searchable yet. Attempting one bounded telemetry repair/re-sync.'
+  bash wazuh-stack/scripts/repair-telemetry-pipeline.sh || fail 'The assigned-pod Night Watch telemetry path could not be repaired safely.'
+  bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 120 || fail 'Assigned-pod Night Watch telemetry is still not searchable after repair.'
 fi
 
-printf '\n'
-if (( telemetry_ready )); then
-  printf '\033[32mSOC WORKSTATION READY\033[0m\n'
-  printf 'Verified: assigned-pod VCC telemetry is indexed and searchable in Wazuh.\n'
-else
-  printf '\033[33mSOC WORKSTATION READY - TELEMETRY PENDING\033[0m\n'
-  printf 'Wazuh is operational; no assigned-pod VCC event is available to verify yet.\n'
-fi
+log 'Checking latest-event freshness...'
+bash wazuh-stack/scripts/telemetry-freshness.sh || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
+
+printf '\n\033[32mSOC WORKSTATION READY\033[0m\n'
+printf 'Verified: assigned-pod Operation Night Watch telemetry is indexed and searchable in Wazuh.\n'
 if [[ "$HOST_MODE" == windows ]]; then
   printf 'Windows launcher will copy the private dashboard password and open the browser.\n'
 else
