@@ -32,10 +32,12 @@ fi
 chmod 600 .env 2>/dev/null || true
 
 # First-run recovery compares a desired runtime-credential fingerprint with the
-# last dashboard-applied fingerprint. Create the latter as an empty private file
-# up front so Bash never emits a misleading "No such file" redirection warning.
+# last dashboard-applied fingerprint. Create the latter only when absent so Bash
+# never emits a misleading redirection warning and healthy reuse state survives.
 mkdir -p state
-: > state/dashboard-api.applied.sha256 2>/dev/null || true
+if [[ ! -e state/dashboard-api.applied.sha256 ]]; then
+  : > state/dashboard-api.applied.sha256
+fi
 chmod 600 state/dashboard-api.applied.sha256 2>/dev/null || true
 
 missing=()
