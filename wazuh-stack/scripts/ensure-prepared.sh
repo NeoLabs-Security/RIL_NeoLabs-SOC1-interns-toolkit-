@@ -61,9 +61,13 @@ bash ./scripts/repair-certificate-permissions.sh
 # access session from appearing to hang behind a first-use image download.
 bash ./scripts/prepare-runtime-images.sh
 
+# Host VCC credentials deliberately remain owner-only. Stage only the collector
+# inputs into a Docker volume owned by the image's unprivileged collector user.
+bash ./scripts/stage-vcc-secrets.sh
+
 # The collector is intentionally non-root. Repair the named telemetry volume now
 # so both fresh volumes and volumes created by older launcher iterations are
 # writable before replay/live events are appended.
 bash ./scripts/repair-telemetry-volume.sh
 
-printf '[OK] Wazuh preparation, credentials, TLS files, telemetry volume and runtime images are ready.\n'
+printf '[OK] Wazuh preparation, credentials, TLS files, VCC secrets, telemetry volume and runtime images are ready.\n'
