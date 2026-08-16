@@ -23,7 +23,9 @@ jobs:
           set -euo pipefail
           python3 -m tools.cli --help >/dev/null
           python3 tools/cli.py --help >/dev/null
+          bash neolabs --help >/dev/null
           for file in \
+            neolabs \
             start-neolabs-soc.sh \
             internal/linux/Test-NeoLabsRuntime.sh \
             internal/linux/Repair-NeoLabsRuntime.sh \
@@ -40,6 +42,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           root = Path('start-neolabs-soc.sh').read_text(encoding='utf-8')
+          cli = Path('neolabs').read_text(encoding='utf-8')
           common = Path('internal/common/Start-NeoLabsSOC.sh').read_text(encoding='utf-8')
           ensure = Path('wazuh-stack/scripts/ensure-prepared.sh').read_text(encoding='utf-8')
 
@@ -53,6 +56,11 @@ jobs:
           if 'WSL_DISTRO_NAME' not in root or 'native-Linux Docker installation is intentionally skipped' not in root:
               raise SystemExit('Linux root must retain Windows/WSL ownership guard')
 
+          if 'python3 -m tools.cli' not in cli or 'cd "$ROOT_DIR"' not in cli:
+              raise SystemExit('Linux root CLI must invoke the package module from repository root')
+          if 'python3 tools/cli.py' in cli or 'cd tools' in cli:
+              raise SystemExit('Linux root CLI regressed to the old tools-directory invocation')
+
           if 'python3 -m tools.cli login' not in common or 'python3 -m tools.cli connect' not in common:
               raise SystemExit('Shared orchestrator must use module CLI entrypoints')
           if common.index('ensure-prepared.sh') > common.index('python3 -m tools.cli login'):
@@ -62,6 +70,18 @@ jobs:
           for cert in ('root-ca.pem','root-ca-manager.pem','admin-key.pem','wazuh.indexer-key.pem','wazuh.manager-key.pem','wazuh.dashboard-key.pem'):
               if cert not in ensure:
                   raise SystemExit('Central Wazuh preparation missing ' + cert)
+
+          docs = [
+              Path('README.md'), Path('START_HERE.md'),
+              Path('PROGRAMME_CURRENT_STATE.md'),
+              Path('docs/week-01/operation-night-watch-launch-pack.md'),
+          ]
+          for path in docs:
+              text = path.read_text(encoding='utf-8')
+              if 'bash ./start-neolabs-soc.sh' in text:
+                  raise SystemExit(f'{path}: Linux startup syntax must be `bash start-neolabs-soc.sh`')
+              if './start-neolabs-soc.sh doctor' in text or './start-neolabs-soc.sh status' in text:
+                  raise SystemExit(f'{path}: diagnostics must use the root NeoLabs CLI wrapper')
           PY
 
   windows-cli-invocation-contract:
@@ -69,10 +89,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Windows launcher convergence contract
+      - name: Verify Windows launcher and root CLI convergence contract
         shell: powershell
         run: |
           $cmd = Get-Content .\START-NEOLABS-SOC.cmd -Raw
+          $cliCmd = Get-Content .\neolabs.cmd -Raw
+          $cliAdapter = Get-Content .\internal\windows\Invoke-NeoLabsCLI.ps1 -Raw
           $authority = Get-Content .\internal\windows\Ensure-NeoLabsRuntime.ps1 -Raw
           $soc = Get-Content .\internal\windows\Start-NeoLabsSOC.ps1 -Raw
           $common = Get-Content .\internal\common\Start-NeoLabsSOC.sh -Raw
@@ -87,6 +109,10 @@ jobs:
           if ($soc -match 'prepare-stack\.sh|Assert-DockerStillAvailable|verify-telemetry-pipeline\.sh') { throw 'Windows adapter must not duplicate shared runtime/Wazuh checks.' }
           if ($common -notmatch 'python3 -m tools\.cli connect') { throw 'Shared orchestrator must invoke tools.cli module.' }
 
+          if ($cliCmd -notmatch 'Invoke-NeoLabsCLI\.ps1') { throw 'Root neolabs.cmd must delegate to the Windows CLI adapter.' }
+          if ($cliAdapter -notmatch 'python3 -m tools\.cli') { throw 'Windows root CLI adapter must invoke tools.cli as a module.' }
+          if ($cliAdapter -match 'cd tools|python3 tools/cli\.py') { throw 'Windows root CLI adapter must not use the old tools-directory path.' }
+
       - name: Validate Windows PowerShell parsers and self-tests
         shell: powershell
         run: |
@@ -95,7 +121,8 @@ jobs:
             '.\internal\windows\Test-NeoLabsDockerRuntime.ps1',
             '.\internal\windows\Repair-NeoLabsRuntime.ps1',
             '.\internal\windows\Recover-DockerDesktopBackend.ps1',
-            '.\internal\windows\Start-NeoLabsSOC.ps1'
+            '.\internal\windows\Start-NeoLabsSOC.ps1',
+            '.\internal\windows\Invoke-NeoLabsCLI.ps1'
           )) {
             $tokens = $null; $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
