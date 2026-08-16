@@ -86,9 +86,8 @@ indexed_hits() {
 
 # Return codes:
 #   0 = fully searchable
-#   1 = local pipeline not ready/broken
+#   1 = telemetry delivery/indexing is not ready
 #   2 = deterministic rule-engine failure
-#   3 = local pipeline is healthy but the assigned pod has no VCC event yet
 check_once() {
   local pod hits
   pod="$(resolve_pod | tail -n1 | tr -d '\r\n')"
@@ -101,28 +100,26 @@ check_once() {
   rules_are_loaded "${pod}" || { printf '[FAIL] NeoLabs VCC custom rules are not active in wazuh-analysisd.\n' >&2; return 2; }
 
   if ! raw_event_present "${pod}"; then
-    printf '[WAIT] Local Wazuh/collector services are healthy, but no validated VCC event for %s has been published into the shared telemetry volume yet.\n' "${pod}" >&2
-    return 3
+    printf '[WAIT] Night Watch telemetry for %s has not reached the local shared telemetry volume yet.\n' "${pod}" >&2
+    return 1
   fi
 
   hits="$(indexed_hits "${pod}" 2>/dev/null || printf '0')"
   [[ "${hits}" =~ ^[0-9]+$ ]] || hits=0
   if (( hits < 1 )); then
-    printf '[WAIT] VCC events exist locally but are not searchable in wazuh-alerts-* yet.\n' >&2
+    printf '[WAIT] Night Watch events exist locally but are not searchable in wazuh-alerts-* yet.\n' >&2
     return 1
   fi
 
   printf '[OK] VCC_TELEMETRY_SEARCHABLE pod=%s alerts=%s\n' "${pod}" "${hits}"
-  printf '[OK] Manager JSON input, NeoLabs rules, Filebeat/indexer path and dashboard backing index are working.\n'
+  printf '[OK] Night Watch delivery, Manager JSON input, NeoLabs rules and Filebeat/indexer search path are working.\n'
   return 0
 }
 
 started="$(date +%s)"
-last_rc=1
 while true; do
   rc=0
   check_once || rc=$?
-  last_rc=$rc
   if (( rc == 0 )); then
     exit 0
   fi
@@ -131,11 +128,7 @@ while true; do
   fi
   now="$(date +%s)"
   if (( WAIT_SECONDS == 0 || now - started >= WAIT_SECONDS )); then
-    if (( last_rc == 3 )); then
-      printf 'NOTICE: The local SOC stack is healthy, but the VCC server has not supplied an assigned-pod event within %ss.\n' "$WAIT_SECONDS" >&2
-      exit 3
-    fi
-    printf 'ERROR: Assigned-pod VCC telemetry did not become searchable within %ss.\n' "${WAIT_SECONDS}" >&2
+    printf 'ERROR: Active Night Watch telemetry for the assigned pod did not become searchable within %ss.\n' "${WAIT_SECONDS}" >&2
     exit 1
   fi
   sleep 10
