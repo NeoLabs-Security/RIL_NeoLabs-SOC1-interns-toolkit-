@@ -75,16 +75,14 @@ jobs:
               raise SystemExit('Indexer wait helper must assign its deadline after the local seconds variable exists')
 
           # /status is protected and returned HTTP 401 on the live 4.14.7 host.
-          # Use Wazuh Docker's /login readiness probe; NeoLabs separately checks
+          # Use the /login readiness surface with curl -f; NeoLabs separately checks
           # authenticated dashboard -> manager API connectivity after Docker health.
-          expected_health = '["CMD", "curl", "-k", "-s", "-o", "/dev/null", "https://localhost:5601/login"]'
+          expected_health = '["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]'
           if expected_health not in compose:
-              raise SystemExit('Dashboard healthcheck must use the Wazuh /login readiness endpoint')
+              raise SystemExit('Dashboard healthcheck must require a successful Wazuh /login response')
           if 'localhost:5601/status' in compose:
               raise SystemExit('Protected /status must not be used as the anonymous Docker healthcheck')
 
-          # Host VCC secrets remain 0700/0600 and are staged into a collector-owned
-          # Docker volume rather than bind-mounted into the non-root service.
           if './secrets/vcc:/run/vcc-secrets:ro' in compose:
               raise SystemExit('Direct host-secret bind mount reintroduced collector permission failures')
           if 'vcc_runtime_secrets:/run/vcc-secrets:ro' not in compose:
@@ -95,9 +93,6 @@ jobs:
               if needle not in stage:
                   raise SystemExit('VCC secret staging contract missing: ' + needle)
 
-          # Collector cursor/health are mutable and must not use the private host
-          # state directory as a write bind. Seed only assigned-pod into a private
-          # collector-owned runtime-state volume and prove that volume writable.
           if './state:/state' in compose:
               raise SystemExit('Direct host state bind reintroduced collector write-permission failures')
           for needle in (
@@ -116,13 +111,9 @@ jobs:
               if needle not in stage:
                   raise SystemExit('Collector runtime-state staging contract missing: ' + needle)
 
-          # First-run dashboard state must be created only if absent; unconditional
-          # truncation would force unnecessary dashboard recreation every launch.
           if 'if [[ ! -e state/dashboard-api.applied.sha256 ]]; then' not in prepare:
               raise SystemExit('Dashboard API applied fingerprint must be initialized only when absent')
 
-          # Indexer remains isolated; only the manager gets egress for vulnerability
-          # and content updates that were failing DNS resolution in the diagnostics.
           if 'manager_egress:' not in compose:
               raise SystemExit('Manager outbound egress network is missing')
           manager_block = compose.split('  wazuh.manager:', 1)[1].split('  wazuh.indexer:', 1)[0]
