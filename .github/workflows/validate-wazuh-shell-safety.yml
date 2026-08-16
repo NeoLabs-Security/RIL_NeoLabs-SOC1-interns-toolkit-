@@ -15,12 +15,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Wazuh shell invocation, host profile and nounset safety
+      - name: Verify Wazuh shell invocation, host profile and runtime safety
         run: |
           set -euo pipefail
           bash -n neolabs
           bash -n wazuh-stack/scripts/start.sh
           bash -n wazuh-stack/scripts/recover-runtime.sh
+          bash -n wazuh-stack/scripts/stage-vcc-secrets.sh
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -29,6 +30,9 @@ jobs:
           windows_cli = Path('internal/windows/Invoke-NeoLabsCLI.ps1').read_text(encoding='utf-8')
           start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
           recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
+          prepare = Path('wazuh-stack/scripts/ensure-prepared.sh').read_text(encoding='utf-8')
+          stage = Path('wazuh-stack/scripts/stage-vcc-secrets.sh').read_text(encoding='utf-8')
+          compose = Path('wazuh-stack/docker-compose.yml').read_text(encoding='utf-8')
 
           required = (
               'bash ./scripts/ensure-prepared.sh',
@@ -72,4 +76,35 @@ jobs:
               raise SystemExit('Unsafe same-statement wait variable initialization reintroduced')
           if 'local seconds="$1" deadline\n' not in recovery or 'deadline=$((SECONDS + seconds))' not in recovery:
               raise SystemExit('Indexer wait helper must assign its deadline after the local seconds variable exists')
+
+          # Wazuh 4.14.7 protects /status. An unauthenticated curl gets HTTP 401 and
+          # kept real dashboards permanently in Docker health=starting.
+          expected_health = 'curl -skf -u \\\"$${INDEXER_USERNAME}:$${INDEXER_PASSWORD}\\\" https://localhost:5601/status'
+          if expected_health not in compose:
+              raise SystemExit('Dashboard healthcheck must authenticate to the protected /status endpoint')
+          if 'curl -skf https://localhost:5601/status' in compose:
+              raise SystemExit('Unauthenticated dashboard /status healthcheck reintroduced')
+
+          # Host VCC secrets remain 0700/0600 and must not be bind-mounted directly
+          # into the unprivileged collector. Stage them into a collector-owned volume.
+          if './secrets/vcc:/run/vcc-secrets:ro' in compose:
+              raise SystemExit('Direct host-secret bind mount reintroduced collector permission failures')
+          if 'vcc_runtime_secrets:/run/vcc-secrets:ro' not in compose:
+              raise SystemExit('Collector must mount the staged VCC runtime-secret volume read-only')
+          if 'bash ./scripts/stage-vcc-secrets.sh' not in prepare:
+              raise SystemExit('Wazuh preparation must stage VCC secrets after the collector image exists')
+          for needle in ('chmod 0600 "$path"', 'id -u collector', 'id -g collector'):
+              if needle not in stage:
+                  raise SystemExit('VCC secret staging safety contract missing: ' + needle)
+
+          # The indexer remains isolated, but the manager needs outbound DNS/HTTPS
+          # for Wazuh vulnerability/content updates.
+          if 'manager_egress:' not in compose:
+              raise SystemExit('Manager outbound egress network is missing')
+          manager_block = compose.split('  wazuh.manager:', 1)[1].split('  wazuh.indexer:', 1)[0]
+          if '- manager_egress' not in manager_block:
+              raise SystemExit('Wazuh manager must join the dedicated outbound egress bridge')
+          indexer_block = compose.split('  wazuh.indexer:', 1)[1].split('  wazuh.dashboard:', 1)[0]
+          if 'manager_egress' in indexer_block:
+              raise SystemExit('Wazuh indexer must remain isolated from manager egress')
           PY
