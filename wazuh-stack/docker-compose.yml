@@ -48,8 +48,6 @@ services:
       start_period: 90s
     networks:
       - wazuh_internal
-      # Wazuh vulnerability/content updates require outbound DNS/HTTPS. Keep the
-      # indexer isolated and give only the manager a dedicated egress bridge.
       - manager_egress
 
   wazuh.indexer:
@@ -111,9 +109,6 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      # /status is protected and returned HTTP 401 to the anonymous probe on live
-      # Wazuh 4.14.7 hosts. Follow Wazuh Docker's /login connectivity probe; the
-      # authenticated dashboard -> manager API verification runs separately.
       test: ["CMD", "curl", "-k", "-s", "-o", "/dev/null", "https://localhost:5601/login"]
       interval: 30s
       timeout: 10s
@@ -136,15 +131,14 @@ services:
       VCC_CLIENT_KEY_PATH: /run/vcc-secrets/client.key
       VCC_CA_CERT_PATH: /run/vcc-secrets/ca.crt
       VCC_INSTALLATION_ID_PATH: /run/vcc-secrets/installation-id
-      VCC_TELEMETRY_CURSOR_PATH: /state/vcc-telemetry.cursor
+      VCC_ASSIGNED_POD_PATH: /runtime-state/assigned-pod
+      VCC_TELEMETRY_CURSOR_PATH: /runtime-state/vcc-telemetry.cursor
       VCC_OUTPUT_PATH: /data/vcc-events.ndjson
-      VCC_HEALTH_PATH: /state/collector-health.json
+      VCC_HEALTH_PATH: /runtime-state/collector-health.json
       VCC_POLL_INTERVAL_SECONDS: ${VCC_POLL_INTERVAL_SECONDS:-15}
     volumes:
       - vcc_telemetry:/data
-      - ./state:/state
-      # Host enrolment secrets remain 0700/0600. A bounded staging helper copies
-      # only required files into this collector-owned read-only runtime volume.
+      - vcc_runtime_state:/runtime-state
       - vcc_runtime_secrets:/run/vcc-secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "python /app/healthcheck.py"]
@@ -178,15 +172,14 @@ volumes:
   wazuh-dashboard-config:
   wazuh-dashboard-custom:
   vcc_telemetry:
-  # Created by scripts/stage-vcc-secrets.sh before Compose starts the collector.
-  # External prevents normal Compose teardown from deleting staged mTLS material.
   vcc_runtime_secrets:
     name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_secrets
     external: true
+  vcc_runtime_state:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_state
+    external: true
 
 networks:
-  # Core manager/indexer traffic stays isolated. Dashboard and manager receive
-  # separate bridges only for host access and manager content-feed egress.
   wazuh_internal:
     internal: true
   dashboard_access:
