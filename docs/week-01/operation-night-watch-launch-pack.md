@@ -8,7 +8,13 @@ Build a defensible picture of **normal** VCC activity in your assigned pod. This
 
 ### Windows
 
-Pull the latest toolkit and double-click:
+Pull the latest toolkit and either double-click `START-NEOLABS-SOC.cmd` or run from PowerShell:
+
+```powershell
+.\START-NEOLABS-SOC.cmd
+```
+
+Command Prompt users run:
 
 ```text
 START-NEOLABS-SOC.cmd
@@ -21,8 +27,6 @@ From the toolkit root:
 ```bash
 bash start-neolabs-soc.sh
 ```
-
-After first-run permission normalisation, later runs may use `./start-neolabs-soc.sh`.
 
 The platform launcher is responsible for first-run prerequisites and Wazuh preparation. Do not manually run individual files under `internal/` or `wazuh-stack/scripts/` as a substitute setup sequence.
 
@@ -43,25 +47,47 @@ Dashboard: https://127.0.0.1:8443
 Username:  admin
 ```
 
-On Windows the password is copied to the clipboard without being printed. On Linux desktop systems an available supported clipboard utility may be used; otherwise the locally generated password remains private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
+On Windows the password is copied to the clipboard without being printed. On Linux the launcher reports the protected local credential when appropriate; do not post screenshots containing it.
 
-A headless Linux server cannot open a GUI browser. The launcher prints an SSH local-port-forward example so the intern can access the loopback dashboard from their own computer.
+On a supported headless Linux server, the dashboard is published on TCP 8443 and the launcher reports the server URL. Cloud/host firewall rules must restrict access to the intern's approved source IP.
+
+## NeoLabs CLI from the repository root
+
+Do not navigate into `tools/`.
+
+Windows PowerShell:
+
+```powershell
+.\neolabs.cmd status
+.\neolabs.cmd doctor
+.\neolabs.cmd login
+.\neolabs.cmd connect
+```
+
+Linux / Ubuntu:
+
+```bash
+bash neolabs status
+bash neolabs doctor
+bash neolabs login
+bash neolabs connect
+```
 
 ## If startup/telemetry is not healthy
 
-Windows:
+Windows PowerShell:
 
-```text
-START-NEOLABS-SOC.cmd doctor
+```powershell
+.\neolabs.cmd doctor
 ```
 
 Linux:
 
 ```bash
-./start-neolabs-soc.sh doctor
+bash neolabs doctor
 ```
 
-Doctor checks NeoLabs authentication → LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → indexer → dashboard, plus telemetry freshness and local index/disk state.
+Doctor checks NeoLabs authentication → LIVE/REPLAY surface → raw VCC event file → Wazuh rule engine → Filebeat → indexer → dashboard/manager API, plus telemetry freshness and local index/disk state.
 
 Do not solve setup problems by adding `sudo` to random internal Wazuh commands. The platform launcher owns the small number of OS-level privileged operations needed during first setup.
 
