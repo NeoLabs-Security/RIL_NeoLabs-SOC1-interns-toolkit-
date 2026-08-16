@@ -93,6 +93,11 @@ jobs:
               raise SystemExit('Runtime credential renderer must synchronize indexer and dashboard API credentials')
           if 'id -u collector' not in volume or 'chown -R' not in volume or '--user 0:0' not in volume:
               raise SystemExit('Telemetry volume repair must derive the unprivileged collector UID and repair only /data')
+          for cap in ('--cap-add CHOWN', '--cap-add FOWNER', '--cap-add DAC_OVERRIDE'):
+              if cap not in volume:
+                  raise SystemExit('Telemetry volume root helper must restore only required filesystem capability: ' + cap)
+          if '.neolabs-write-probe-' not in volume or 'unprivileged collector still cannot write /data' not in volume:
+              raise SystemExit('Telemetry volume repair must verify write access as the actual unprivileged collector')
           if 'docker compose --env-file .env rm -sf' not in stale or 'previous toolkit directory' not in stale:
               raise SystemExit('Stale bind-mount migration is missing')
           if 'security/user/authenticate?raw=true' not in api or 'Authorization: Bearer' not in api:
