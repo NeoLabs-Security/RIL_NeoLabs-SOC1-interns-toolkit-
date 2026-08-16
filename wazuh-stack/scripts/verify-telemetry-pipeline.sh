@@ -84,6 +84,11 @@ indexed_hits() {
   printf '%s' "${response}" | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("hits",{}).get("total",0); print(t.get("value",0) if isinstance(t,dict) else t)'
 }
 
+# Return codes:
+#   0 = fully searchable
+#   1 = local pipeline not ready/broken
+#   2 = deterministic rule-engine failure
+#   3 = local pipeline is healthy but the assigned pod has no VCC event yet
 check_once() {
   local pod hits
   pod="$(resolve_pod | tail -n1 | tr -d '\r\n')"
@@ -93,8 +98,12 @@ check_once() {
     service_is_healthy "${service}" || { printf '[WAIT] %s is not healthy yet.\n' "${service}" >&2; return 1; }
   done
 
-  raw_event_present "${pod}" || { printf '[WAIT] No validated VCC event for %s is present in the shared telemetry volume yet.\n' "${pod}" >&2; return 1; }
   rules_are_loaded "${pod}" || { printf '[FAIL] NeoLabs VCC custom rules are not active in wazuh-analysisd.\n' >&2; return 2; }
+
+  if ! raw_event_present "${pod}"; then
+    printf '[WAIT] Local Wazuh/collector services are healthy, but no validated VCC event for %s has been published into the shared telemetry volume yet.\n' "${pod}" >&2
+    return 3
+  fi
 
   hits="$(indexed_hits "${pod}" 2>/dev/null || printf '0')"
   [[ "${hits}" =~ ^[0-9]+$ ]] || hits=0
@@ -109,9 +118,11 @@ check_once() {
 }
 
 started="$(date +%s)"
+last_rc=1
 while true; do
   rc=0
   check_once || rc=$?
+  last_rc=$rc
   if (( rc == 0 )); then
     exit 0
   fi
@@ -120,6 +131,10 @@ while true; do
   fi
   now="$(date +%s)"
   if (( WAIT_SECONDS == 0 || now - started >= WAIT_SECONDS )); then
+    if (( last_rc == 3 )); then
+      printf 'NOTICE: The local SOC stack is healthy, but the VCC server has not supplied an assigned-pod event within %ss.\n' "$WAIT_SECONDS" >&2
+      exit 3
+    fi
     printf 'ERROR: Assigned-pod VCC telemetry did not become searchable within %ss.\n' "${WAIT_SECONDS}" >&2
     exit 1
   fi
