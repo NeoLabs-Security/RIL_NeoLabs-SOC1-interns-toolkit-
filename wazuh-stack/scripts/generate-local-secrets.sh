@@ -21,7 +21,9 @@ cp "${ENV_EXAMPLE}" "${ENV_FILE}"
 chmod 600 "${ENV_FILE}"
 
 indexer_password="$(openssl rand -hex 24)"
-api_password="$(openssl rand -hex 24)"
+# Wazuh server API passwords are policy-checked separately from indexer users:
+# include uppercase, lowercase, a number and a symbol while retaining high entropy.
+api_password="Na7!$(openssl rand -hex 20)"
 dashboard_password="$(openssl rand -hex 24)"
 
 python3 - "${ENV_FILE}" "${indexer_password}" "${api_password}" "${dashboard_password}" <<'PY'
