@@ -110,6 +110,13 @@ jobs:
           if not (start.index('ensure-prepared.sh') < start.index('validate-local-rules.py') < start.index('repair-stale-bind-mounts.sh') < start.index('recover-runtime.sh')):
               raise SystemExit('Wazuh start order must be preparation -> rule validation -> stale-mount repair -> recovery')
 
+          # `set -u` must not expand a newly declared local wait variable before
+          # Bash has assigned it. Keep deadline arithmetic in a later statement.
+          if 'local seconds="$1" deadline=$((SECONDS + seconds))' in recovery:
+              raise SystemExit('Unsafe same-statement wait variable initialization reintroduced')
+          if 'wait_indexer_reachable()' not in recovery or 'local seconds="$1" deadline\n  deadline=$((SECONDS + seconds))' not in recovery:
+              raise SystemExit('Indexer wait helper must initialize deadline after seconds is assigned')
+
           indexer = recovery.index('Starting the Wazuh indexer first')
           manager = recovery.index('Starting the Wazuh manager independently')
           dashboard = recovery.index('Starting the Wazuh dashboard only after manager/indexer health and credentials are proven')
