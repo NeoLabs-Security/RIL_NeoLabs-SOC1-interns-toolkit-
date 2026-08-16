@@ -31,6 +31,13 @@ if [[ ! -f .env ]]; then
 fi
 chmod 600 .env 2>/dev/null || true
 
+# First-run recovery compares a desired runtime-credential fingerprint with the
+# last dashboard-applied fingerprint. Create the latter as an empty private file
+# up front so Bash never emits a misleading "No such file" redirection warning.
+mkdir -p state
+: > state/dashboard-api.applied.sha256 2>/dev/null || true
+chmod 600 state/dashboard-api.applied.sha256 2>/dev/null || true
+
 missing=()
 for path in "${required_generated_paths[@]}"; do
   [[ -s "$path" ]] || missing+=("$path")
