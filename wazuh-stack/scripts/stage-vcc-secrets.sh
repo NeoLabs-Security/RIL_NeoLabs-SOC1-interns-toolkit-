@@ -30,7 +30,7 @@ docker volume inspect "$state_volume" >/dev/null 2>&1 || docker volume create "$
 # Keep host sources owner-only. A one-shot root helper copies only the four
 # collector credential inputs into a private Docker volume and seeds the
 # authoritative server-issued pod into a separate writable runtime-state volume.
-# Existing cursor/health state is preserved across launches.
+# Cursor/health survive ordinary restarts but are reset if pod assignment changes.
 docker run --rm \
   --user 0:0 \
   --mount "type=bind,src=${secret_dir},dst=/secret-source,readonly" \
@@ -56,12 +56,25 @@ docker run --rm \
       chmod 0600 "$path"
     done
 
-    # Host state is not bind-mounted into the long-running collector. Seed only
-    # assigned-pod; cursor and health remain collector-owned in the Docker volume.
-    if [ -f /state-source/assigned-pod ]; then
+    old_pod=""
+    new_pod=""
+    [ ! -f /state-dest/assigned-pod ] || old_pod="$(tr -d "\r\n" < /state-dest/assigned-pod)"
+    [ ! -f /state-source/assigned-pod ] || new_pod="$(tr -d "\r\n" < /state-source/assigned-pod)"
+
+    if [ -n "$new_pod" ]; then
+      # A cursor is scoped to the server-issued pod. Preserve it only when the
+      # assignment is unchanged; never carry an old pod cursor into a new pod.
+      if [ "$old_pod" != "$new_pod" ]; then
+        rm -f /state-dest/vcc-telemetry.cursor /state-dest/collector-health.json
+      fi
       rm -f /state-dest/assigned-pod
       cp /state-source/assigned-pod /state-dest/assigned-pod
+    else
+      # No current authoritative pod: clear only ephemeral collector state. Raw
+      # telemetry/indexer data and host enrolment material remain untouched.
+      rm -f /state-dest/assigned-pod /state-dest/vcc-telemetry.cursor /state-dest/collector-health.json
     fi
+
     chown -R "$uid:$gid" /state-dest
     chmod 0700 /state-dest
     find /state-dest -type f -exec chmod 0600 {} +
