@@ -40,7 +40,7 @@ PowerShell:
 .\START-NEOLABS-SOC.cmd -ValidateOnly
 ```
 
-Command Prompt users can omit the `./`-style current-directory prefix and run:
+Command Prompt users can run:
 
 ```text
 START-NEOLABS-SOC.cmd -ValidateOnly
@@ -80,9 +80,11 @@ Command Prompt:
 neolabs.cmd --help
 neolabs.cmd status
 neolabs.cmd doctor
+neolabs.cmd login
+neolabs.cmd connect
 ```
 
-`neolabs.cmd` runs the same `python3 -m tools.cli` client inside the supported WSL2 environment. Students no longer need to `cd tools` or run `python3 neolabs.py` manually.
+The Windows CLI wrapper uses the same WSL2 runtime and repository checkout as the main launcher.
 
 ### What the Windows launcher does
 
@@ -90,9 +92,19 @@ On the first run it checks the Windows host, prepares WSL2 and Docker Desktop wh
 
 On later runs it reuses the existing Wazuh configuration/data, starts or reconnects the required services, verifies telemetry again and opens the dashboard.
 
+The Windows launcher invokes the NeoLabs Python client as:
+
+```text
+python3 -m tools.cli
+```
+
+inside WSL2. It does **not** use the old `python3 tools/cli.py` launcher path that caused the Ubuntu `ModuleNotFoundError: No module named 'tools'` failure.
+
 ### Windows platform rule
 
-`START-NEOLABS-SOC.cmd` is for a **physical Windows 10/11 workstation**. If it detects Windows Server or a Windows VM/VPS guest, it stops and directs the intern to use an Ubuntu/Debian VPS instead.
+`START-NEOLABS-SOC.cmd` is for a **physical Windows 10/11 workstation**. It checks the host before WSL/Docker setup.
+
+If it detects Windows Server or a Windows VM/VPS guest, it stops and tells the intern to use an Ubuntu/Debian VPS instead.
 
 If a physical Windows PC has hardware virtualisation disabled, enable Intel VT-x / AMD-V / Virtualization in BIOS/UEFI, then rerun the same CMD file.
 
@@ -112,13 +124,11 @@ git pull origin main
 
 ### 2. Validate the Linux launcher
 
-Canonical Linux syntax:
-
 ```bash
 bash start-neolabs-soc.sh --validate-only
 ```
 
-Expected result includes:
+Expected result:
 
 ```text
 [OK] Linux one-click SOC launcher contract is valid.
@@ -126,11 +136,11 @@ Expected result includes:
 
 ### 3. Start NeoLabs SOC
 
-Run:
-
 ```bash
 bash start-neolabs-soc.sh
 ```
+
+The root launcher may also be executed directly after executable permissions are available, but `bash start-neolabs-soc.sh` is the portable documented form and does not depend on a Git execute bit.
 
 Do **not** run the whole launcher with `sudo`:
 
@@ -138,11 +148,9 @@ Do **not** run the whole launcher with `sudo`:
 Do not use: sudo bash start-neolabs-soc.sh
 ```
 
-The launcher itself uses `sudo` only for the small number of OS-level operations that require administrator privileges.
+The launcher itself uses `sudo` only for the small number of OS-level operations that actually require administrator privileges.
 
 ### 4. Use the NeoLabs CLI from the repository root
-
-Use the root wrapper instead of navigating into `tools/`:
 
 ```bash
 bash neolabs --help
@@ -152,13 +160,7 @@ bash neolabs login
 bash neolabs connect
 ```
 
-The wrapper runs:
-
-```text
-python3 -m tools.cli
-```
-
-from the correct repository root, preventing the import-path errors caused by launching the low-level Python files from inside `tools/`.
+You do not need to enter `tools/`. The root wrapper runs `python3 -m tools.cli` from the correct repository root. `bash neolabs ...` is intentionally permission-safe even on checkouts where executable mode bits were not preserved.
 
 ### What the Linux launcher does
 
@@ -180,7 +182,7 @@ Ubuntu 24.04 LTS
 Current supported Debian release
 ```
 
-Do not use Windows Server or a Windows VPS/VM for the NeoLabs SOC workstation.
+Do not use Windows Server or a Windows VPS/VM for the NeoLabs SOC workstation. Windows guests depend on nested virtualisation controlled by the VPS provider and are not the supported remote SOC path.
 
 For an Ubuntu VPS, the complete normal startup is:
 
@@ -205,50 +207,45 @@ The launcher handles the supported prerequisites, prepares Docker, configures th
 
 ## Later runs
 
-Use the **same platform launcher again**:
+Use the same platform launcher again:
 
 ```text
 Windows PowerShell: .\START-NEOLABS-SOC.cmd
-Linux/Ubuntu:       bash start-neolabs-soc.sh
+Windows CMD:        START-NEOLABS-SOC.cmd
+Linux:              bash start-neolabs-soc.sh
 ```
 
 If `wazuh-stack/.env` and generated configuration already exist, they are reused. Ordinary startup does not regenerate the existing `.env`, delete Wazuh volumes, change pod assignment or reinstall the whole stack.
 
 ---
 
-# NeoLabs CLI and diagnostics
+# Diagnostics
 
-The launcher is for starting/repairing the SOC workstation. The root `neolabs` wrappers are for CLI operations.
+The launcher and root CLI both expose normal diagnostics.
 
 ### Windows PowerShell
 
 ```powershell
-.\neolabs.cmd status
+.\START-NEOLABS-SOC.cmd doctor
+.\START-NEOLABS-SOC.cmd status
+.\START-NEOLABS-SOC.cmd login
+
 .\neolabs.cmd doctor
-.\neolabs.cmd login
-.\neolabs.cmd connect
+.\neolabs.cmd status
 ```
 
-### Linux / Ubuntu
+### Linux
 
 ```bash
-bash neolabs status
+bash start-neolabs-soc.sh doctor
+bash start-neolabs-soc.sh status
+bash start-neolabs-soc.sh login
+
 bash neolabs doctor
-bash neolabs login
-bash neolabs connect
+bash neolabs status
 ```
 
-Doctor checks:
-
-```text
-NeoLabs authentication
-→ current LIVE/REPLAY surface
-→ raw VCC event file
-→ Wazuh rule engine
-→ Filebeat
-→ Wazuh indexer
-→ Wazuh dashboard + manager API connection
-```
+Doctor checks NeoLabs authentication, the current LIVE/REPLAY surface, raw VCC telemetry, Wazuh rules, Filebeat, the indexer, dashboard and manager API connection.
 
 If startup fails, send the mentor the exact terminal error/Doctor output after redacting credentials. Do not edit internal scripts or add `sudo` randomly.
 
@@ -268,13 +265,11 @@ Username:
 admin
 ```
 
-On Windows, the locally generated password is copied to the Windows clipboard without being printed. On Linux the launcher reports the local dashboard credential from the protected local configuration when appropriate; do not post screenshots containing it.
+On Windows, the locally generated password is copied to the Windows clipboard without being printed. On Linux the launcher displays the local dashboard credential when appropriate so a headless/server intern can sign in; treat terminal screenshots as private if that password is visible.
 
 ## Headless Ubuntu/VPS
 
-The supported headless Linux profile publishes dashboard TCP `8443` on the server so an intern can reach the dashboard using the server address. The launcher prints the local/private/public URL that it can determine.
-
-Cloud or host firewall access remains an administrator-controlled boundary. Allow TCP `8443` only from the intern's approved source IP; do not open Wazuh administrative access broadly to the Internet.
+The launcher reports the dashboard address appropriate for the server profile. Cloud/host firewall policy still controls whether another device can reach TCP 8443.
 
 ---
 
@@ -286,7 +281,7 @@ Do not begin the practical merely because Docker containers started. Wait for:
 SOC WORKSTATION READY
 ```
 
-READY means a real synthetic event belonging to the **server-assigned pod** has been processed and is searchable in the local Wazuh indexer. Operation Night Watch is configured across the authorised Week 1 pods, so persistent missing assigned-pod telemetry is treated as a delivery/pipeline fault rather than an acceptable final state.
+READY means a real synthetic event belonging to the **server-assigned pod** has been processed and is searchable in the local Wazuh indexer. The launcher makes bounded safe local repair attempts before failing closed.
 
 ---
 
@@ -297,7 +292,7 @@ Read:
 - [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md)
 - [`publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf`](publications/00_NeoLabs_SOC_L1_Week_01_Launch_Pack.pdf)
 
-Use the preconfigured **NeoLabs — Operation Night Watch** view/dashboard when available. The **NeoLabs — Telemetry Health** view focuses on rule `100150` and collection/parser/visibility problems.
+Use the preconfigured **NeoLabs — Operation Night Watch** view/dashboard when available. The **NeoLabs — Telemetry Health** view focuses on collection/parser/visibility problems.
 
 Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`, not this toolkit repository.
 
@@ -306,25 +301,25 @@ Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`, not this
 # Repository layout
 
 ```text
-START-NEOLABS-SOC.cmd        ← Windows 10/11 physical-PC startup/repair entry point
-start-neolabs-soc.sh         ← Linux/Ubuntu/VPS startup/repair entry point
-neolabs.cmd                  ← Windows root NeoLabs CLI wrapper
-neolabs                      ← Linux root NeoLabs CLI wrapper
-README.md                    ← exact platform command syntax
-START_HERE.md                ← onboarding/orientation
-PROGRAMME_CURRENT_STATE.md   ← current programme/runtime reference
-internal/windows/            ← Windows implementation helpers; do not run directly
-wazuh-stack/                 ← Wazuh Compose/config/rules/internal runtime scripts
-tools/                       ← underlying NeoLabs Python implementation; do not cd here for normal CLI use
-docs/                        ← learning/operational documentation
-publications/                ← branded student PDFs
-templates/                   ← evidence/report templates
-sample-logs/ + labs/         ← synthetic practice material
-references/ + research/      ← deeper reference material
-scripts/                     ← publication/build tooling
+START-NEOLABS-SOC.cmd        ← Windows 10/11 physical-PC launcher
+start-neolabs-soc.sh         ← Linux/Ubuntu/VPS launcher
+neolabs.cmd                   ← Windows root NeoLabs CLI
+neolabs                       ← Linux root NeoLabs CLI
+README.md                     ← exact startup/CLI commands
+START_HERE.md                 ← onboarding/orientation
+PROGRAMME_CURRENT_STATE.md    ← current programme/runtime reference
+internal/windows/             ← Windows implementation helpers; do not run directly
+wazuh-stack/                  ← Wazuh Compose/config/rules/internal runtime scripts
+tools/                        ← underlying Python CLI implementation
+docs/                         ← learning/operational documentation
+publications/                 ← branded student PDFs
+templates/                    ← evidence/report templates
+sample-logs/ + labs/          ← synthetic practice material
+references/ + research/       ← deeper reference material
+scripts/                      ← publication/build tooling
 ```
 
-Students have one startup launcher and one root CLI wrapper for their operating system; the files under `internal/`, `tools/` and `wazuh-stack/scripts/` are implementation details.
+Students should not need to choose among setup scripts or navigate into `tools/`.
 
 ---
 
