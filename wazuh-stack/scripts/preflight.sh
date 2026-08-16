@@ -54,9 +54,19 @@ done
 [[ "${WAZUH_DASHBOARD_PORT}" =~ ^[0-9]+$ ]] || fail "WAZUH_DASHBOARD_PORT must be numeric."
 (( WAZUH_DASHBOARD_PORT >= 1024 && WAZUH_DASHBOARD_PORT <= 65535 )) || fail "WAZUH_DASHBOARD_PORT must be between 1024 and 65535."
 
+exposure="${NEOLABS_DASHBOARD_EXPOSURE:-auto}"
+exposure="${exposure,,}"
+case "$exposure" in auto|loopback|server) ;; *) fail "NEOLABS_DASHBOARD_EXPOSURE must be auto, loopback or server." ;; esac
 case "${WAZUH_DASHBOARD_BIND}" in
-  127.0.0.1|::1|localhost) ;;
-  *) fail "The student dashboard must bind to loopback only. Use 127.0.0.1 unless an operator-approved profile says otherwise." ;;
+  127.0.0.1|::1|localhost)
+    ;;
+  0.0.0.0)
+    [[ "${NEOLABS_HOST_MODE:-}" == linux ]] || fail "Publishing the dashboard on all interfaces is allowed only by the native Linux server profile."
+    [[ "$exposure" != loopback ]] || fail "Dashboard exposure is loopback but WAZUH_DASHBOARD_BIND is 0.0.0.0."
+    ;;
+  *)
+    fail "Unsupported WAZUH_DASHBOARD_BIND. Use loopback or the approved native-Linux server profile."
+    ;;
 esac
 
 python3 - "${ENV_FILE}" <<'PY'
