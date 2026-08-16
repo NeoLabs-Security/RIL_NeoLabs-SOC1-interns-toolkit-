@@ -50,7 +50,11 @@ indexer_reachable() {
 }
 
 wait_indexer_reachable() {
-  local seconds="$1" deadline=$((SECONDS + seconds))
+  local seconds="$1" deadline
+  # Keep declaration and arithmetic assignment separate under `set -u`: Bash
+  # expands the RHS of a compound `local` declaration before assigning the new
+  # local variable, which made `seconds` appear unbound on real launchers.
+  deadline=$((SECONDS + seconds))
   while (( SECONDS < deadline )); do
     indexer_reachable && return 0
     sleep 5
