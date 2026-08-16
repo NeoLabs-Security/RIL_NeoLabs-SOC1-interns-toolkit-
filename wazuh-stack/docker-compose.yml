@@ -111,10 +111,10 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      # /status is protected by OpenSearch Dashboards security in Wazuh 4.14.7.
-      # Probe it with the already-present indexer credential rather than treating
-      # the expected unauthenticated HTTP 401 as an unhealthy dashboard.
-      test: ["CMD-SHELL", "curl -skf -u \"$${INDEXER_USERNAME}:$${INDEXER_PASSWORD}\" https://localhost:5601/status >/dev/null"]
+      # Wazuh's protected /status endpoint returns HTTP 401 to an anonymous probe.
+      # Follow the upstream Wazuh Docker readiness pattern and probe /login; the
+      # authenticated dashboard -> manager API check runs separately after this.
+      test: ["CMD", "curl", "-k", "-s", "-o", "/dev/null", "https://localhost:5601/login"]
       interval: 30s
       timeout: 10s
       retries: 15
