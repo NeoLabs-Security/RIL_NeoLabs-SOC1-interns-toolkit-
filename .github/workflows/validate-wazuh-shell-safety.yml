@@ -75,7 +75,7 @@ jobs:
               raise SystemExit('Indexer wait helper must assign its deadline after the local seconds variable exists')
 
           # /status is protected and returned HTTP 401 on the live 4.14.7 host.
-          # Follow Wazuh Docker's /login readiness probe; NeoLabs separately checks
+          # Use Wazuh Docker's /login readiness probe; NeoLabs separately checks
           # authenticated dashboard -> manager API connectivity after Docker health.
           expected_health = '["CMD", "curl", "-k", "-s", "-o", "/dev/null", "https://localhost:5601/login"]'
           if expected_health not in compose:
@@ -83,8 +83,8 @@ jobs:
           if 'localhost:5601/status' in compose:
               raise SystemExit('Protected /status must not be used as the anonymous Docker healthcheck')
 
-          # Host VCC secrets remain 0700/0600 and are staged into a private Docker
-          # volume owned by the collector rather than bind-mounted unreadably.
+          # Host VCC secrets remain 0700/0600 and are staged into a collector-owned
+          # Docker volume rather than bind-mounted into the non-root service.
           if './secrets/vcc:/run/vcc-secrets:ro' in compose:
               raise SystemExit('Direct host-secret bind mount reintroduced collector permission failures')
           if 'vcc_runtime_secrets:/run/vcc-secrets:ro' not in compose:
@@ -94,6 +94,32 @@ jobs:
           for needle in ('chmod 0600 "$path"', 'id -u collector', 'id -g collector'):
               if needle not in stage:
                   raise SystemExit('VCC secret staging contract missing: ' + needle)
+
+          # Collector cursor/health are mutable and must not use the private host
+          # state directory as a write bind. Seed only assigned-pod into a private
+          # collector-owned runtime-state volume and prove that volume writable.
+          if './state:/state' in compose:
+              raise SystemExit('Direct host state bind reintroduced collector write-permission failures')
+          for needle in (
+              'vcc_runtime_state:/runtime-state',
+              'VCC_ASSIGNED_POD_PATH: /runtime-state/assigned-pod',
+              'VCC_TELEMETRY_CURSOR_PATH: /runtime-state/vcc-telemetry.cursor',
+              'VCC_HEALTH_PATH: /runtime-state/collector-health.json',
+          ):
+              if needle not in compose:
+                  raise SystemExit('Collector runtime-state contract missing: ' + needle)
+          for needle in (
+              'state_volume="${COMPOSE_PROJECT_NAME}_vcc_runtime_state"',
+              'cp /state-source/assigned-pod /state-dest/assigned-pod',
+              'probe="/runtime-state/.neolabs-state-probe-$$"',
+          ):
+              if needle not in stage:
+                  raise SystemExit('Collector runtime-state staging contract missing: ' + needle)
+
+          # First-run dashboard state must be created only if absent; unconditional
+          # truncation would force unnecessary dashboard recreation every launch.
+          if 'if [[ ! -e state/dashboard-api.applied.sha256 ]]; then' not in prepare:
+              raise SystemExit('Dashboard API applied fingerprint must be initialized only when absent')
 
           # Indexer remains isolated; only the manager gets egress for vulnerability
           # and content updates that were failing DNS resolution in the diagnostics.
