@@ -12,8 +12,10 @@ This file tracks the authoritative student-facing material and operational tooli
 | Practice Labs | guided synthetic authentication investigation plus staged scenario labs | Week 1 current; later labs assignment-controlled |
 | Sample Logs | sanitised synthetic authentication dataset and schema requirements | Current baseline |
 | Incident/Evidence Templates | facts, analysis, confidence, evidence register, timeline and query journal | Current |
-| Windows SOC entry point | `START-NEOLABS-SOC.cmd` | Current root student launcher |
-| Linux/Ubuntu SOC entry point | `start-neolabs-soc.sh` | Current root student launcher |
+| Windows SOC startup entry point | `START-NEOLABS-SOC.cmd` | Current root student startup/repair launcher |
+| Linux/Ubuntu SOC startup entry point | `start-neolabs-soc.sh` | Current root student startup/repair launcher |
+| Windows NeoLabs CLI entry point | `neolabs.cmd` | Current root CLI wrapper; delegates into WSL2 `python3 -m tools.cli` |
+| Linux NeoLabs CLI entry point | `neolabs` | Current root CLI wrapper; runs `python3 -m tools.cli` from repository root |
 | Windows implementation | WSL2/Docker Desktop/bootstrap/orchestration | Internal under `internal/windows/`; not a competing student setup path |
 | Linux implementation | package/Docker/kernel/bootstrap/orchestration | Integrated into root Bash launcher; uses sudo only for OS-level work |
 | VCC Access Integration | server-assigned pod, LIVE/replay selection, mTLS live path, signed replay ingestion and revocation | Active programme path |
@@ -25,10 +27,10 @@ This file tracks the authoritative student-facing material and operational tooli
 
 ## Current student startup
 
-Windows:
+Windows PowerShell:
 
-```text
-START-NEOLABS-SOC.cmd
+```powershell
+.\START-NEOLABS-SOC.cmd
 ```
 
 Linux/Ubuntu:
@@ -37,7 +39,23 @@ Linux/Ubuntu:
 bash start-neolabs-soc.sh
 ```
 
-Diagnostics are subcommands of the same platform launcher (`doctor`, `status`, `login`). Separate root setup/Docker/Doctor/CLI wrappers are intentionally not part of the student-facing layout.
+## Current student CLI
+
+Windows PowerShell:
+
+```powershell
+.\neolabs.cmd status
+.\neolabs.cmd doctor
+```
+
+Linux/Ubuntu:
+
+```bash
+bash neolabs status
+bash neolabs doctor
+```
+
+Students no longer need to navigate into `tools/` for normal CLI use. The root wrappers preserve the supported `python3 -m tools.cli` module entrypoint.
 
 The first run prepares missing prerequisites and Wazuh configuration. Subsequent runs preserve/reuse the existing local Wazuh installation and credentials while reconnecting/verifying the current authorised SOC surface.
 
@@ -54,7 +72,7 @@ See [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md).
 
 ## Validation rule
 
-CI covers Python/shell/XML/NDJSON/Compose checks, both root launcher contracts, internal Windows PowerShell syntax, root-layout hygiene, telemetry-to-dashboard contracts, backup/restore rehearsal, publication inputs and credential/private-file boundaries.
+CI covers Python/shell/XML/NDJSON/Compose checks, both startup launcher contracts, both root CLI wrapper contracts, internal Windows PowerShell syntax, root-layout hygiene, telemetry-to-dashboard contracts, backup/restore rehearsal, publication inputs and credential/private-file boundaries.
 
 ## Release state
 
