@@ -48,6 +48,15 @@ for name in WAZUH_INDEXER_PASSWORD WAZUH_API_PASSWORD WAZUH_DASHBOARD_PASSWORD; 
   [[ ${#value} -ge 24 ]] || fail "${name} must contain at least 24 characters."
 done
 
+# Wazuh server API users enforce a stricter composition policy than the indexer
+# users. render-runtime-credentials.sh migrates old hex-only values before this
+# preflight, so reaching this point with an invalid API secret is a hard error.
+[[ ${#WAZUH_API_PASSWORD} -le 64 ]] || fail "WAZUH_API_PASSWORD must not exceed 64 characters."
+[[ "$WAZUH_API_PASSWORD" =~ [A-Z] ]] || fail "WAZUH_API_PASSWORD must contain an uppercase letter."
+[[ "$WAZUH_API_PASSWORD" =~ [a-z] ]] || fail "WAZUH_API_PASSWORD must contain a lowercase letter."
+[[ "$WAZUH_API_PASSWORD" =~ [0-9] ]] || fail "WAZUH_API_PASSWORD must contain a number."
+[[ "$WAZUH_API_PASSWORD" =~ [^A-Za-z0-9] ]] || fail "WAZUH_API_PASSWORD must contain a symbol."
+
 [[ "${WAZUH_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "WAZUH_VERSION must be pinned to an exact semantic version."
 [[ "${WAZUH_DOCKER_TAG}" == "v${WAZUH_VERSION}" ]] || fail "WAZUH_DOCKER_TAG must match WAZUH_VERSION."
 [[ "${WAZUH_DOCKER_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || fail "WAZUH_DOCKER_COMMIT must be a full 40-character commit SHA."
