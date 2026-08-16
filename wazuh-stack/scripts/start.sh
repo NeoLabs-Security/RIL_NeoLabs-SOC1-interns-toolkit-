@@ -8,6 +8,19 @@ cd "$ROOT_DIR"
 # Wazuh entrypoint. It owns the complete generated TLS/config set and image preload.
 bash ./scripts/ensure-prepared.sh
 
+# `neolabs connect` can enter this Wazuh start path directly, bypassing the full
+# shared launcher. Resolve the dashboard exposure profile here as well so every
+# supported entrypoint uses the same host policy before preflight. The wrappers
+# export linux/windows explicitly; direct low-level Linux use defaults to linux,
+# while configure-dashboard-access itself still detects WSL and keeps it loopback.
+host_mode="${NEOLABS_HOST_MODE:-linux}"
+[[ "$host_mode" == linux || "$host_mode" == windows ]] || {
+  printf 'ERROR: NEOLABS_HOST_MODE must be linux or windows.\n' >&2
+  exit 2
+}
+export NEOLABS_HOST_MODE="$host_mode"
+bash ./scripts/configure-dashboard-access.sh "$host_mode"
+
 # Internal helpers are invoked explicitly through Bash rather than relying on Git
 # executable-mode preservation. This keeps the root `neolabs connect` path safe on
 # copied/cross-platform checkouts where helper scripts are mode 0644.

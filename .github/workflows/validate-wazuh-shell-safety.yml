@@ -15,20 +15,24 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Wazuh shell invocation and nounset safety
+      - name: Verify Wazuh shell invocation, host profile and nounset safety
         run: |
           set -euo pipefail
+          bash -n neolabs
           bash -n wazuh-stack/scripts/start.sh
           bash -n wazuh-stack/scripts/recover-runtime.sh
           python3 - <<'PY'
           from pathlib import Path
           import re
 
+          linux_cli = Path('neolabs').read_text(encoding='utf-8')
+          windows_cli = Path('internal/windows/Invoke-NeoLabsCLI.ps1').read_text(encoding='utf-8')
           start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
           recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
 
           required = (
               'bash ./scripts/ensure-prepared.sh',
+              'bash ./scripts/configure-dashboard-access.sh "$host_mode"',
               'bash ./scripts/preflight.sh',
               'bash ./scripts/repair-stale-bind-mounts.sh',
               'bash ./scripts/recover-runtime.sh',
@@ -39,7 +43,22 @@ jobs:
           )
           missing = [item for item in required if item not in start]
           if missing:
-              raise SystemExit('Wazuh startup must invoke shell helpers through bash: ' + ', '.join(missing))
+              raise SystemExit('Wazuh startup contract missing: ' + ', '.join(missing))
+
+          # Direct root CLI connect must carry the same platform identity as the
+          # full launcher. Otherwise a headless Linux .env with 0.0.0.0 is rejected
+          # by preflight, while WSL can accidentally inherit a Linux server profile.
+          for needle in ('NEOLABS_HOST_MODE=windows', 'NEOLABS_HOST_MODE=linux'):
+              if needle not in linux_cli:
+                  raise SystemExit('Linux/root CLI host-profile detection missing ' + needle)
+          if "'(microsoft|wsl)'" not in linux_cli:
+              raise SystemExit('Root Bash CLI must identify WSL as the Windows workstation profile')
+          if 'env NEOLABS_HOST_MODE=windows python3 -m tools.cli' not in windows_cli:
+              raise SystemExit('Windows neolabs.cmd adapter must export the Windows host profile into WSL')
+          if 'host_mode="${NEOLABS_HOST_MODE:-linux}"' not in start or 'export NEOLABS_HOST_MODE="$host_mode"' not in start:
+              raise SystemExit('Wazuh direct start must resolve and export one host profile')
+          if not (start.index('ensure-prepared.sh') < start.index('configure-dashboard-access.sh') < start.index('preflight.sh')):
+              raise SystemExit('Dashboard access profile must be resolved before Wazuh preflight')
 
           direct = []
           for number, line in enumerate(start.splitlines(), 1):

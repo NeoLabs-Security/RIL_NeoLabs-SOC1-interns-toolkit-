@@ -22,7 +22,10 @@ if ($LASTEXITCODE -ne 0 -or -not $linuxRoot) {
 }
 $linuxRoot = $linuxRoot.Trim()
 
-& wsl.exe --cd $linuxRoot python3 -m tools.cli @CliArgs
+# `neolabs.cmd connect` can start/reuse Wazuh directly through the Python CLI.
+# Export the Windows workstation profile into WSL so dashboard exposure and
+# preflight use the same policy as START-NEOLABS-SOC.cmd.
+& wsl.exe --cd $linuxRoot env NEOLABS_HOST_MODE=windows python3 -m tools.cli @CliArgs
 $exitCode = $LASTEXITCODE
 if ($null -eq $exitCode) { $exitCode = 1 }
 exit $exitCode
