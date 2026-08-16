@@ -1,0 +1,56 @@
+name: Validate Wazuh Shell Safety
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  wazuh-shell-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Wazuh shell invocation and nounset safety
+        run: |
+          set -euo pipefail
+          bash -n wazuh-stack/scripts/start.sh
+          bash -n wazuh-stack/scripts/recover-runtime.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          start = Path('wazuh-stack/scripts/start.sh').read_text(encoding='utf-8')
+          recovery = Path('wazuh-stack/scripts/recover-runtime.sh').read_text(encoding='utf-8')
+
+          required = (
+              'bash ./scripts/ensure-prepared.sh',
+              'bash ./scripts/preflight.sh',
+              'bash ./scripts/repair-stale-bind-mounts.sh',
+              'bash ./scripts/recover-runtime.sh',
+              'bash ./scripts/health-check.sh --wait 600',
+              'bash ./scripts/configure-index-retention.sh',
+              'bash ./scripts/provision-dashboard-objects.sh',
+              'bash ./scripts/disk-warning.sh',
+          )
+          missing = [item for item in required if item not in start]
+          if missing:
+              raise SystemExit('Wazuh startup must invoke shell helpers through bash: ' + ', '.join(missing))
+
+          direct = []
+          for number, line in enumerate(start.splitlines(), 1):
+              stripped = line.strip()
+              if re.match(r'^(?:if\s+!\s+)?\./scripts/[A-Za-z0-9_.-]+\.sh(?:\s|$)', stripped):
+                  direct.append(f'{number}:{stripped}')
+          if direct:
+              raise SystemExit('Direct helper execution reintroduced executable-bit dependency: ' + '; '.join(direct))
+
+          if 'local seconds="$1" deadline=$((SECONDS + seconds))' in recovery:
+              raise SystemExit('Unsafe same-statement wait variable initialization reintroduced')
+          if 'local seconds="$1" deadline\n' not in recovery or 'deadline=$((SECONDS + seconds))' not in recovery:
+              raise SystemExit('Indexer wait helper must assign its deadline after the local seconds variable exists')
+          PY
