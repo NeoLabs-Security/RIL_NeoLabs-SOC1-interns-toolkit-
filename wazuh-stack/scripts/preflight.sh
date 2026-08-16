@@ -48,15 +48,34 @@ for name in WAZUH_INDEXER_PASSWORD WAZUH_API_PASSWORD WAZUH_DASHBOARD_PASSWORD; 
   [[ ${#value} -ge 24 ]] || fail "${name} must contain at least 24 characters."
 done
 
+# Wazuh server API users enforce a stricter composition policy than the indexer
+# users. render-runtime-credentials.sh migrates old hex-only values before this
+# preflight, so reaching this point with an invalid API secret is a hard error.
+[[ ${#WAZUH_API_PASSWORD} -le 64 ]] || fail "WAZUH_API_PASSWORD must not exceed 64 characters."
+[[ "$WAZUH_API_PASSWORD" =~ [A-Z] ]] || fail "WAZUH_API_PASSWORD must contain an uppercase letter."
+[[ "$WAZUH_API_PASSWORD" =~ [a-z] ]] || fail "WAZUH_API_PASSWORD must contain a lowercase letter."
+[[ "$WAZUH_API_PASSWORD" =~ [0-9] ]] || fail "WAZUH_API_PASSWORD must contain a number."
+[[ "$WAZUH_API_PASSWORD" =~ [^A-Za-z0-9] ]] || fail "WAZUH_API_PASSWORD must contain a symbol."
+
 [[ "${WAZUH_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "WAZUH_VERSION must be pinned to an exact semantic version."
 [[ "${WAZUH_DOCKER_TAG}" == "v${WAZUH_VERSION}" ]] || fail "WAZUH_DOCKER_TAG must match WAZUH_VERSION."
 [[ "${WAZUH_DOCKER_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || fail "WAZUH_DOCKER_COMMIT must be a full 40-character commit SHA."
 [[ "${WAZUH_DASHBOARD_PORT}" =~ ^[0-9]+$ ]] || fail "WAZUH_DASHBOARD_PORT must be numeric."
 (( WAZUH_DASHBOARD_PORT >= 1024 && WAZUH_DASHBOARD_PORT <= 65535 )) || fail "WAZUH_DASHBOARD_PORT must be between 1024 and 65535."
 
+exposure="${NEOLABS_DASHBOARD_EXPOSURE:-auto}"
+exposure="${exposure,,}"
+case "$exposure" in auto|loopback|server) ;; *) fail "NEOLABS_DASHBOARD_EXPOSURE must be auto, loopback or server." ;; esac
 case "${WAZUH_DASHBOARD_BIND}" in
-  127.0.0.1|::1|localhost) ;;
-  *) fail "The student dashboard must bind to loopback only. Use 127.0.0.1 unless an operator-approved profile says otherwise." ;;
+  127.0.0.1|::1|localhost)
+    ;;
+  0.0.0.0)
+    [[ "${NEOLABS_HOST_MODE:-}" == linux ]] || fail "Publishing the dashboard on all interfaces is allowed only by the native Linux server profile."
+    [[ "$exposure" != loopback ]] || fail "Dashboard exposure is loopback but WAZUH_DASHBOARD_BIND is 0.0.0.0."
+    ;;
+  *)
+    fail "Unsupported WAZUH_DASHBOARD_BIND. Use loopback or the approved native-Linux server profile."
+    ;;
 esac
 
 python3 - "${ENV_FILE}" <<'PY'

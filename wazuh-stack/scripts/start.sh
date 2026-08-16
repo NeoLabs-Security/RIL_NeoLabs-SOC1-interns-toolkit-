@@ -16,6 +16,11 @@ python3 ./scripts/validate-local-rules.py
 
 docker compose --env-file .env config --quiet
 
+# Containers created from older toolkit locations keep absolute bind-mount source
+# paths even after the repository is moved. Remove only those stale containers;
+# named volumes/indexer data/telemetry are preserved and recovery recreates them.
+bash ./scripts/repair-stale-bind-mounts.sh
+
 printf 'Starting Wazuh through the NeoLabs bounded runtime recovery path...\n'
 bash ./scripts/recover-runtime.sh
 

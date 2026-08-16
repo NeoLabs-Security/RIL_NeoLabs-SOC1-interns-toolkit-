@@ -41,7 +41,7 @@ services:
       - ./generated/config/wazuh_cluster/wazuh_manager.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running'"]
+      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running' && /var/ossec/bin/wazuh-control status | grep -q 'wazuh-apid is running'"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -115,6 +115,7 @@ services:
       start_period: 120s
     networks:
       - wazuh_internal
+      - dashboard_access
 
   vcc.telemetry.collector:
     build:
@@ -171,6 +172,9 @@ volumes:
   vcc_telemetry:
 
 networks:
+  # Manager/indexer traffic remains isolated. The dashboard gets a second bridge
+  # only for host-port publishing instead of making the whole Wazuh network egress-capable.
   wazuh_internal:
     internal: true
+  dashboard_access:
   vcc_egress:

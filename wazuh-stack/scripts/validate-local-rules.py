@@ -2,6 +2,7 @@
 """Fail fast on NeoLabs Wazuh rule mistakes before container recovery begins."""
 from __future__ import annotations
 
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -49,11 +50,30 @@ def main() -> int:
                     f"rule {rule_id} treats Wazuh static field '{name}' as a dynamic <field>; "
                     f"use the dedicated <{name}> rule element instead"
                 )
+            if (field.attrib.get("type") or "").strip().lower() != "pcre2":
+                return fail(
+                    f"rule {rule_id} field '{name}' must declare type='pcre2' so grouping, "
+                    "quantifiers and escapes are interpreted consistently by wazuh-analysisd"
+                )
+            pattern = field.text or ""
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                return fail(f"rule {rule_id} field '{name}' has an invalid regex: {exc}")
+
+        for static_name in ("action", "status"):
+            for element in rule.findall(static_name):
+                if (element.attrib.get("type") or "").strip().lower() != "pcre2":
+                    return fail(f"rule {rule_id} <{static_name}> must declare type='pcre2'")
+                try:
+                    re.compile(element.text or "")
+                except re.error as exc:
+                    return fail(f"rule {rule_id} <{static_name}> has an invalid regex: {exc}")
 
     if not seen_ids:
         return fail("no NeoLabs custom rules were found")
 
-    print(f"[OK] NeoLabs Wazuh custom rules passed deterministic validation ({len(seen_ids)} rules).")
+    print(f"[OK] NeoLabs Wazuh custom rules passed deterministic PCRE2 validation ({len(seen_ids)} rules).")
     return 0
 
 

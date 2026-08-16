@@ -26,6 +26,7 @@ set +a
 : "${WAZUH_DOCKER_TAG:?WAZUH_DOCKER_TAG is required}"
 : "${WAZUH_DOCKER_COMMIT:?WAZUH_DOCKER_COMMIT is required}"
 : "${WAZUH_INDEXER_PASSWORD:?WAZUH_INDEXER_PASSWORD is required}"
+: "${WAZUH_API_PASSWORD:?WAZUH_API_PASSWORD is required}"
 : "${WAZUH_DASHBOARD_PASSWORD:?WAZUH_DASHBOARD_PASSWORD is required}"
 
 mkdir -p "$STATE_DIR" "$GENERATED_DIR"
@@ -61,35 +62,10 @@ cat >> "$manager_config" <<'XML'
 </ossec_config>
 XML
 
-hash_password() {
-  local password="$1"
-  docker run --rm \
-    -e NEOLABS_PASSWORD="$password" \
-    "wazuh/wazuh-indexer:${WAZUH_VERSION}" \
-    bash -lc '/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$NEOLABS_PASSWORD"' \
-    | awk '/^\$2[ayb]\$/{hash=$0} END{print hash}'
-}
-
-printf 'Generating local password hashes using the pinned Wazuh indexer image...\n'
-admin_hash="$(hash_password "$WAZUH_INDEXER_PASSWORD")"
-dashboard_hash="$(hash_password "$WAZUH_DASHBOARD_PASSWORD")"
-[[ -n "$admin_hash" ]] || fail 'Could not generate the indexer administrator password hash.'
-[[ -n "$dashboard_hash" ]] || fail 'Could not generate the dashboard service password hash.'
-
-python3 - "$GENERATED_DIR/config/wazuh_indexer/internal_users.yml" "$admin_hash" "$dashboard_hash" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-for username, new_hash in (("admin", sys.argv[2]), ("kibanaserver", sys.argv[3])):
-    pattern = rf'({re.escape(username)}:\n  hash: ")[^"]+("\n)'
-    text, count = re.subn(pattern, rf'\g<1>{new_hash}\g<2>', text, count=1)
-    if count != 1:
-        raise SystemExit(f"Could not update hash for {username}")
-path.write_text(text, encoding="utf-8")
-PY
+# Render both OpenSearch internal-user hashes and the Wazuh dashboard -> manager
+# API credential from the same local .env. This prevents the upstream default
+# wazuh-wui password from surviving inside generated/wazuh.yml.
+bash "$ROOT_DIR/scripts/render-runtime-credentials.sh"
 
 rm -rf "$GENERATED_DIR/config/wazuh_indexer_ssl_certs"
 mkdir -p "$GENERATED_DIR/config/wazuh_indexer_ssl_certs"
