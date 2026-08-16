@@ -24,9 +24,49 @@ set +a
 : "${WAZUH_API_PASSWORD:?WAZUH_API_PASSWORD is required}"
 
 command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required.'
+command -v openssl >/dev/null 2>&1 || fail 'openssl is required.'
 mkdir -p "$STATE_DIR"
 
-desired="$(printf 'neolabs-runtime-credentials-v2\0%s\0%s\0%s\0' \
+api_password_valid() {
+  WAZUH_API_PASSWORD_CHECK="$WAZUH_API_PASSWORD" python3 - <<'PY'
+import os, re, sys
+p=os.environ.get('WAZUH_API_PASSWORD_CHECK','')
+ok=(8 <= len(p) <= 64 and re.search(r'[A-Z]',p) and re.search(r'[a-z]',p)
+    and re.search(r'[0-9]',p) and re.search(r'[^A-Za-z0-9]',p))
+sys.exit(0 if ok else 1)
+PY
+}
+
+# Previous NeoLabs iterations generated every local password with `openssl rand
+# -hex`, which is strong for indexer users but does not satisfy Wazuh server API
+# composition policy. Rotate only the local wazuh-wui API secret when needed;
+# this does not touch the NeoLabs/VCC access code, pod credential or index data.
+if ! api_password_valid; then
+  printf '[NeoLabs Wazuh] Migrating a legacy local Wazuh API password to the current server-API policy...\n'
+  new_api_password="Na7!$(openssl rand -hex 20)"
+  python3 - "$ENV_FILE" "$new_api_password" <<'PY'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1])
+new=sys.argv[2]
+lines=path.read_text(encoding='utf-8').splitlines()
+out=[]; changed=False
+for line in lines:
+    if line.startswith('WAZUH_API_PASSWORD='):
+        out.append('WAZUH_API_PASSWORD=' + new); changed=True
+    else:
+        out.append(line)
+if not changed:
+    out.append('WAZUH_API_PASSWORD=' + new)
+path.write_text('\n'.join(out)+'\n', encoding='utf-8')
+PY
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  WAZUH_API_PASSWORD="$new_api_password"
+  unset new_api_password
+  printf '[OK] Legacy local Wazuh API password was rotated without printing the new value.\n'
+fi
+
+desired="$(printf 'neolabs-runtime-credentials-v3\0%s\0%s\0%s\0' \
   "$WAZUH_INDEXER_PASSWORD" "$WAZUH_DASHBOARD_PASSWORD" "$WAZUH_API_PASSWORD" | sha256sum | awk '{print $1}')"
 marker="# NeoLabs runtime credential fingerprint: ${desired}"
 
