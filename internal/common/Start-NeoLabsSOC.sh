@@ -41,6 +41,7 @@ for path in \
   wazuh-stack/scripts/compatibility-check.sh \
   wazuh-stack/scripts/ensure-prepared.sh \
   wazuh-stack/scripts/prepare-runtime-images.sh \
+  wazuh-stack/scripts/prepare-telemetry-volume.sh \
   wazuh-stack/scripts/validate-local-rules.py \
   wazuh-stack/scripts/verify-telemetry-pipeline.sh \
   wazuh-stack/scripts/repair-telemetry-pipeline.sh \
@@ -101,7 +102,23 @@ if ! bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180; then
 fi
 
 log 'Checking latest-event freshness...'
-bash wazuh-stack/scripts/telemetry-freshness.sh || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
+bash wazuh-stack/scripts/telemetry-freshness.sh --wait 10 || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
+
+dashboard_host_ips() {
+  local iface cidr ip
+  if command -v ip >/dev/null 2>&1; then
+    while read -r iface cidr; do
+      case "${iface}" in
+        docker*|br-*|veth*|virbr*|cni*|lo) continue ;;
+      esac
+      ip="${cidr%%/*}"
+      [[ "${ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+      printf '%s\n' "${ip}"
+    done < <(ip -4 -o addr show scope global | awk '{print $2, $4}')
+  elif command -v hostname >/dev/null 2>&1; then
+    hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $0 !~ /^(127\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.1$)/'
+  fi
+}
 
 # shellcheck disable=SC1091
 source wazuh-stack/.env
@@ -114,12 +131,35 @@ if [[ -f wazuh-stack/state/dashboard-objects.ready ]]; then
 fi
 
 printf '\n\033[32mSOC WORKSTATION READY\033[0m\n'
-printf 'Dashboard: %s\n' "$dashboard_url"
-printf 'Username:  admin\n'
-printf 'Password:  kept private in wazuh-stack/.env (WAZUH_INDEXER_PASSWORD).\n'
+printf 'Wazuh dashboard login\n'
+printf '  Username:  admin\n'
+if [[ -n "${WAZUH_INDEXER_PASSWORD:-}" ]]; then
+  printf '  Password:  %s\n' "${WAZUH_INDEXER_PASSWORD}"
+else
+  printf '  Password:  missing from wazuh-stack/.env (WAZUH_INDEXER_PASSWORD)\n'
+fi
+printf '\nOpen on this machine:\n'
+printf '  %s\n' "$dashboard_url"
+printf '\nOpen from another device that can reach this host:\n'
+remote_listed=0
+while IFS= read -r host_ip; do
+  [[ -n "${host_ip}" ]] || continue
+  printf '  https://%s:%s\n' "${host_ip}" "${dashboard_port}"
+  remote_listed=1
+done < <(dashboard_host_ips)
+public_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+if [[ "${public_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf '  https://%s:%s\n' "${public_ip}" "${dashboard_port}"
+  remote_listed=1
+fi
+if (( remote_listed == 0 )); then
+  printf '  https://<this-server-ip>:%s\n' "${dashboard_port}"
+fi
+printf '\nThe browser will warn about a local self-signed certificate; continue anyway.\n'
+printf 'If another device cannot connect, allow inbound TCP %s on this host or cloud firewall.\n' "${dashboard_port}"
 printf 'Verified: assigned-pod VCC telemetry is indexed and searchable in Wazuh.\n'
 if [[ "$HOST_MODE" == "windows" ]]; then
-  printf 'Windows launcher will copy the private dashboard password and open the browser.\n'
+  printf 'Windows launcher will also copy this password and open the browser.\n'
 else
   printf 'Troubleshooting: ./start-neolabs-soc.sh doctor\n'
 fi
@@ -128,8 +168,5 @@ if [[ "$HOST_MODE" == "linux" && $NO_BROWSER -eq 0 ]] && command -v xdg-open >/d
   log 'Opening the NeoLabs SOC dashboard...'
   xdg-open "$open_url" >/dev/null 2>&1 &
 elif [[ "$HOST_MODE" == "linux" ]]; then
-  printf '\nHeadless/remote Linux: Wazuh is running, but there is no local GUI browser to open.\n'
-  printf 'From your own computer, forward the loopback dashboard over SSH:\n'
-  printf '  ssh -L %s:127.0.0.1:%s <linux-user>@<server-address>\n' "$dashboard_port" "$dashboard_port"
-  printf 'Then open %s in your local browser.\n' "$dashboard_url"
+  printf '\nHeadless/remote Linux: Wazuh is running. Use one of the URLs above from your own browser.\n'
 fi

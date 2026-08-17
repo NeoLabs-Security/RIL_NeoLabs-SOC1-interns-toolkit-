@@ -26,6 +26,7 @@ set +a
 : "${WAZUH_DOCKER_TAG:?WAZUH_DOCKER_TAG is required}"
 : "${WAZUH_DOCKER_COMMIT:?WAZUH_DOCKER_COMMIT is required}"
 : "${WAZUH_INDEXER_PASSWORD:?WAZUH_INDEXER_PASSWORD is required}"
+: "${WAZUH_API_PASSWORD:?WAZUH_API_PASSWORD is required}"
 : "${WAZUH_DASHBOARD_PASSWORD:?WAZUH_DASHBOARD_PASSWORD is required}"
 
 mkdir -p "$STATE_DIR" "$GENERATED_DIR"
@@ -47,6 +48,27 @@ esac
 rm -rf "$GENERATED_DIR/config"
 cp -a "$UPSTREAM_DIR/single-node/config" "$GENERATED_DIR/config"
 cp "$UPSTREAM_DIR/single-node/generate-indexer-certs.yml" "$GENERATED_DIR/generate-indexer-certs.yml"
+
+# Keep the dashboard's mounted Wazuh API configuration aligned with the
+# locally generated manager credential. The dashboard config is bind-mounted
+# read-only, so its entrypoint cannot repair a stale upstream password.
+python3 - "$GENERATED_DIR/config/wazuh_dashboard/wazuh.yml" "$WAZUH_API_PASSWORD" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+text, count = re.subn(
+    r'(?m)^(\s*password:\s*)[^\r\n]+$',
+    lambda match: f'{match.group(1)}"{sys.argv[2]}"',
+    text,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("Could not update the dashboard Wazuh API password")
+path.write_text(text, encoding="utf-8")
+PY
 
 manager_config="$GENERATED_DIR/config/wazuh_cluster/wazuh_manager.conf"
 cat >> "$manager_config" <<'XML'

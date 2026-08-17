@@ -58,8 +58,8 @@ The root CMD delegates to `internal/windows/Start-NeoLabsSOC.ps1`, which:
 11. verifies a real synthetic event from the server-assigned pod is searchable in `wazuh-alerts-*`;
 12. reports freshness/retention/disk state;
 13. provisions the Night Watch/Telemetry Health saved objects when supported;
-14. copies the local `admin` password to the Windows clipboard without printing it; and
-15. opens the local dashboard.
+14. prints the local Wazuh `admin` username and password (Windows also copies the password to the clipboard); and
+15. opens the dashboard, including URLs other devices can use.
 
 Windows may require a restart after first enabling WSL or one initial Linux-distribution user setup. When Windows cannot complete such an OS transition in the running process, the launcher stops clearly and the intern reruns the **same CMD** after the required restart/initialisation.
 
@@ -110,9 +110,9 @@ Normal local URL:
 https://127.0.0.1:8443
 ```
 
-Username is `admin`. The password is generated locally and never belongs in GitHub/student submissions.
+Username is `admin`. The password is generated locally and printed on the `SOC WORKSTATION READY` screen. It must not be committed or included in student submissions.
 
-Windows copies it to the clipboard without printing it. A Linux desktop may copy it when a supported clipboard utility is already available. On headless Linux servers/VPS systems the launcher prints an SSH local-port-forward example because there is no GUI browser on the server; the dashboard remains loopback-only.
+Windows also copies it to the clipboard. From another device, use one of the `https://<host-ip>:8443` URLs printed by the launcher. The dashboard is published on every host interface; indexer and manager ports stay unpublished.
 
 ## READY meaning
 

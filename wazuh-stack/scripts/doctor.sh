@@ -96,12 +96,12 @@ fi
 
 # 6/7 — Indexer health plus assigned-pod searchable alert count.
 if service_healthy wazuh.indexer; then
-  cluster="$(docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" https://localhost:9200/_cluster/health' 2>/dev/null || true)"
+  cluster="$(docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" https://localhost:9200/_cluster/health 2>/dev/null || true)"
   cluster_status="$(printf '%s' "${cluster}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("status","unknown"))
 except Exception: print("unknown")')"
   query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
-  indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"
+  indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search" 2>/dev/null || true)"
   hits="$(printf '%s' "${indexed:-{}}" | python3 -c 'import json,sys
 try:
  d=json.load(sys.stdin); t=d.get("hits",{}).get("total",0); print(t.get("value",0) if isinstance(t,dict) else t)
@@ -116,7 +116,7 @@ else
 fi
 
 # 7/7 — Dashboard process is reachable, and preconfigured objects were provisioned when possible.
-dash_code="$(curl -sk -o /dev/null -w '%{http_code}' "https://127.0.0.1:${WAZUH_DASHBOARD_PORT:-8443}/status" 2>/dev/null || printf 000)"
+dash_code="$(curl -sk -u "admin:${WAZUH_INDEXER_PASSWORD}" -o /dev/null -w '%{http_code}' "https://127.0.0.1:${WAZUH_DASHBOARD_PORT:-8443}/status" 2>/dev/null || printf 000)"
 if [[ "${dash_code}" =~ ^(200|302)$ ]]; then
   if [[ -f state/dashboard-objects.ready ]] && [[ "$(tr -d '\r\n' < state/dashboard-objects.ready)" == "${pod}" ]]; then
     pass '7/7 Wazuh dashboard — reachable; NeoLabs Night Watch and Telemetry Health saved objects are provisioned.'
@@ -132,7 +132,7 @@ printf '\n'
 ./scripts/telemetry-freshness.sh || true
 ./scripts/disk-warning.sh || true
 
-retention="$(docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" https://localhost:9200/_plugins/_ism/policies/neolabs-wazuh-alert-retention' 2>/dev/null || true)"
+retention="$(docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" https://localhost:9200/_plugins/_ism/policies/neolabs-wazuh-alert-retention 2>/dev/null || true)"
 if [[ -n "${retention}" ]]; then
   retention_days="$(printf '%s' "${retention}" | python3 -c 'import json,sys,re
 try:

@@ -66,28 +66,37 @@ $nightWatchUrl = "$dashboardUrl/app/dashboards#/view/neolabs-night-watch"
 & wsl.exe --cd $linuxRoot test -f wazuh-stack/state/dashboard-objects.ready
 $openUrl = if ($LASTEXITCODE -eq 0) { $nightWatchUrl } else { $dashboardUrl }
 
+$adminPassword = $null
 $credentialCopied = $false
-if (-not $NoClipboard) {
-    try {
-        $adminPassword = Get-WazuhAdminPassword $linuxRoot
-        Copy-SecretToClipboard $adminPassword
-        $credentialCopied = $true
-        $adminPassword = $null
-        Remove-Variable adminPassword -ErrorAction SilentlyContinue
-    } catch {
-        Write-Host "[WARN] Wazuh is ready, but the admin password could not be copied to the clipboard: $($_.Exception.Message)" -ForegroundColor Yellow
+try {
+    $adminPassword = Get-WazuhAdminPassword $linuxRoot
+    if (-not $NoClipboard) {
+        try {
+            Copy-SecretToClipboard $adminPassword
+            $credentialCopied = $true
+        } catch {
+            Write-Host "[WARN] Wazuh is ready, but the admin password could not be copied to the clipboard: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
+} catch {
+    Write-Host "[WARN] Wazuh is ready, but the admin password could not be read: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 Write-Host ''
 Write-Host 'WINDOWS SOC DESK READY' -ForegroundColor Green
-Write-Host "Dashboard: $dashboardUrl"
-Write-Host 'Username:  admin'
-if ($credentialCopied) {
-    Write-Host 'Password:  copied to your Windows clipboard - press Ctrl+V on the Wazuh login page.' -ForegroundColor Green
+Write-Host 'Wazuh dashboard login'
+Write-Host "  Dashboard: $dashboardUrl"
+Write-Host '  Username:  admin'
+if ($adminPassword) {
+    Write-Host "  Password:  $adminPassword" -ForegroundColor Green
 } else {
-    Write-Host 'Password:  remains private in wazuh-stack/.env as WAZUH_INDEXER_PASSWORD.' -ForegroundColor Yellow
+    Write-Host '  Password:  missing from wazuh-stack/.env (WAZUH_INDEXER_PASSWORD)' -ForegroundColor Yellow
 }
+if ($credentialCopied) {
+    Write-Host 'Password was also copied to your Windows clipboard - press Ctrl+V on the Wazuh login page.' -ForegroundColor Green
+}
+$adminPassword = $null
+Remove-Variable adminPassword -ErrorAction SilentlyContinue
 Write-Host 'Runtime repair will be skipped on later launches while Windows/WSL2/Docker remains positively healthy.' -ForegroundColor Green
 
 if (-not $NoBrowser) {

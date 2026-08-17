@@ -13,6 +13,8 @@ Ubuntu/Debian/Linux:        start-neolabs-soc.sh
 
 Do **not** manually run files under `internal/` or individual files under `wazuh-stack/scripts/` for normal setup/startup.
 
+For a fresh installation, clone the official toolkit repository, open a terminal in the clone's root directory and use the launcher for your platform. Do not copy another intern's `.env`, generated configuration, enrolment files or Docker volumes into the clone.
+
 ---
 
 ## Windows 10/11 — physical laptop or desktop
@@ -196,6 +198,46 @@ If `wazuh-stack/.env` and generated configuration already exist, they are reused
 
 ---
 
+# After a shutdown, reboot or power loss
+
+Do not reinstall Wazuh and do not reset the stack. Start Docker if your platform requires it, then run the same root launcher again:
+
+```text
+Windows: START-NEOLABS-SOC.cmd
+Linux:   ./start-neolabs-soc.sh
+```
+
+On Windows, allow Docker Desktop and its WSL2 integration to finish starting. On Linux, the launcher checks Docker Engine and performs the supported service recovery. The launcher reuses local credentials, enrolment, generated configuration and indexed data; it starts the four services (indexer, manager, dashboard and telemetry collector), restores the telemetry path and waits for an assigned-pod event to become searchable before printing READY.
+
+If recovery does not reach READY, run the matching `doctor` command from the Diagnostics section and send redacted output to a mentor.
+
+---
+
+# Destructive reset — testing or mentor-approved recovery only
+
+A reset is not needed after an ordinary shutdown. It deletes the local Wazuh containers, volumes, indexed alerts, saved objects, generated Wazuh configuration/certificates, local telemetry and replay-fetch ledger so the next launch can build and fetch everything consistently from scratch.
+
+From a Linux or WSL terminal in the repository root:
+
+```bash
+cd wazuh-stack
+bash ./scripts/reset.sh --confirm-destroy-local-data
+cd ..
+```
+
+Then rebuild through the supported root launcher:
+
+```text
+Windows: START-NEOLABS-SOC.cmd
+Linux:   ./start-neolabs-soc.sh
+```
+
+By default, reset preserves the ignored `.env`, repository source and VCC enrolment/assigned-pod state. The next startup regenerates local Wazuh assets, reapplies restrictive telemetry-volume permissions, refetches authorised replay data where applicable and must verify end-to-end searchability before READY.
+
+Do not add `--include-enrolment` for routine testing. That option also removes the local VCC client credential, certificates, assigned-pod record and enrolment state. It does not revoke the server-side credential; use it only when a VCC operator has revoked the old enrolment and supplied a fresh authorised handoff.
+
+---
+
 # Diagnostics
 
 You do not need separate Doctor/setup files in the repository root.
@@ -234,11 +276,7 @@ If startup fails, send the mentor the exact terminal error/Doctor output after r
 
 # Wazuh dashboard
 
-Normal local URL:
-
-```text
-https://127.0.0.1:8443
-```
+After successful NeoLabs authentication and a verified start, the launcher prints the dashboard username and password.
 
 Username:
 
@@ -246,29 +284,19 @@ Username:
 admin
 ```
 
-On Windows, the locally generated password is copied to the Windows clipboard without being printed. On a Linux desktop, the launcher uses an available supported clipboard utility when possible. Otherwise the password remains private in:
+Password: the locally generated `WAZUH_INDEXER_PASSWORD`. The launcher prints it on the `SOC WORKSTATION READY` screen. Windows also copies it to the clipboard.
 
-```text
-wazuh-stack/.env
-```
-
-as `WAZUH_INDEXER_PASSWORD`.
-
-## Headless Ubuntu/VPS
-
-The Wazuh dashboard remains loopback-only on the server. The launcher prints an SSH forwarding command similar to:
-
-```bash
-ssh -L 8443:127.0.0.1:8443 ubuntu@SERVER_IP
-```
-
-Run that SSH command from the intern's own computer, then open locally:
+On this machine:
 
 ```text
 https://127.0.0.1:8443
 ```
 
-Do not expose the Wazuh dashboard publicly just because it is running on a VPS.
+## Other devices / VPS
+
+The dashboard is published on every host interface (`0.0.0.0:8443`). After READY, the launcher prints `https://<host-ip>:8443` URLs you can open from another laptop, phone or browser that can reach this host.
+
+The certificate is self-signed, so continue past the browser warning. If the page does not load, allow inbound TCP `8443` on the host or cloud security group. Indexer and manager ports stay unpublished.
 
 ---
 

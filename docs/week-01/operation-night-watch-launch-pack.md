@@ -41,11 +41,10 @@ The launcher also reports newest-event freshness, checks local alert retention/d
 ```text
 Dashboard: https://127.0.0.1:8443
 Username:  admin
+Password:  printed on the SOC WORKSTATION READY screen
 ```
 
-On Windows the password is copied to the clipboard without being printed. On Linux desktop systems an available supported clipboard utility may be used; otherwise the locally generated password remains private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
-
-A headless Linux server cannot open a GUI browser. The launcher prints an SSH local-port-forward example so the intern can access the loopback dashboard from their own computer.
+Windows also copies the password to the clipboard. From another device, use one of the `https://<host-ip>:8443` URLs printed by the launcher. The certificate is self-signed, so the browser warning is expected.
 
 ## If startup/telemetry is not healthy
 

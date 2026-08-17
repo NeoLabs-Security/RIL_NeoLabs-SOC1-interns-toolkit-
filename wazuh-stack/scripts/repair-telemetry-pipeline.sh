@@ -21,6 +21,9 @@ printf '[repair] Current lab state: %s\n' "${lab_state}"
 
 # Reassert the existing containers/configuration without deleting named volumes.
 docker compose --env-file .env up -d wazuh.indexer wazuh.manager vcc.telemetry.collector wazuh.dashboard >/dev/null
+# A newly created named volume is root-owned by default. Reassert the collector
+# ownership before replay or live telemetry attempts to create its NDJSON file.
+bash ./scripts/prepare-telemetry-volume.sh
 # Restart only local consumers of the shared telemetry file. Never reset VCC or
 # delete the student's persistent Wazuh/indexer named volumes.
 docker compose --env-file .env restart wazuh.manager vcc.telemetry.collector >/dev/null

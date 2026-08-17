@@ -55,8 +55,20 @@ done
 (( WAZUH_DASHBOARD_PORT >= 1024 && WAZUH_DASHBOARD_PORT <= 65535 )) || fail "WAZUH_DASHBOARD_PORT must be between 1024 and 65535."
 
 case "${WAZUH_DASHBOARD_BIND}" in
-  127.0.0.1|::1|localhost) ;;
-  *) fail "The student dashboard must bind to loopback only. Use 127.0.0.1 unless an operator-approved profile says otherwise." ;;
+  127.0.0.1|::1|localhost|0.0.0.0) ;;
+  *)
+    python3 - "${WAZUH_DASHBOARD_BIND}" <<'PY' || fail "WAZUH_DASHBOARD_BIND must be 0.0.0.0, loopback, or a valid IPv4 address."
+import ipaddress
+import sys
+
+try:
+    addr = ipaddress.ip_address(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+if addr.version != 4 or addr.is_multicast:
+    raise SystemExit(1)
+PY
+    ;;
 esac
 
 python3 - "${ENV_FILE}" <<'PY'

@@ -70,7 +70,7 @@ Then use:
 bash start-neolabs-soc.sh
 ```
 
-This uses Docker Engine directly and avoids the WSL2/nested-virtualisation dependency. On a headless server, the launcher prints an SSH local-port-forward command so the intern can securely open the loopback-only Wazuh dashboard from their own computer.
+This uses Docker Engine directly and avoids the WSL2/nested-virtualisation dependency. After a successful start the launcher prints the Wazuh username, password and URLs that other devices can use to open the dashboard.
 
 ## Do not begin until READY
 
@@ -82,13 +82,35 @@ READY means an actual synthetic event for the **server-assigned pod** is indexed
 
 ## Wazuh login
 
-Normal local dashboard:
+After `SOC WORKSTATION READY`, the launcher prints:
+
+```text
+Username:  admin
+Password:  <locally generated WAZUH_INDEXER_PASSWORD>
+```
+
+On this machine:
 
 ```text
 https://127.0.0.1:8443
 ```
 
-Username is `admin`. Windows copies the locally generated password to the clipboard without printing it. Linux desktop systems use an available supported clipboard utility when present; otherwise the password stays private in `wazuh-stack/.env` as `WAZUH_INDEXER_PASSWORD`.
+From another phone, laptop or browser that can reach this host, use one of the `https://<host-ip>:8443` URLs printed by the launcher. The certificate is self-signed, so the browser warning is expected. If the page does not load, allow inbound TCP `8443` on the host or cloud firewall. Windows also copies the password to the clipboard.
+
+## After a shutdown or reboot
+
+Do not reinstall or reset the stack. Start Docker Desktop on Windows if necessary, then run the same normal launcher again:
+
+```text
+Windows: START-NEOLABS-SOC.cmd
+Linux:   ./start-neolabs-soc.sh
+```
+
+The launcher reuses the existing local configuration and data, recovers the indexer, manager, dashboard and telemetry collector, and verifies assigned-pod telemetry before READY. If it fails, run the platform `doctor` command and share only redacted output with a mentor.
+
+## Reset is an advanced destructive operation
+
+Use `wazuh-stack/scripts/reset.sh --confirm-destroy-local-data` only for an intentional clean-install test or mentor-approved recovery, never for a normal reboot. It removes local Wazuh data and generated assets but preserves enrolment by default. Do not use `--include-enrolment` unless a VCC operator has revoked the old credential and provided a fresh handoff. See the [setup and troubleshooting guide](troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md#15-destructive-local-reset) for the exact procedure and deletion scope.
 
 ## Repository structure
 

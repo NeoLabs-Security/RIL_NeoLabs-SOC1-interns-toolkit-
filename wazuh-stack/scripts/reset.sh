@@ -30,6 +30,13 @@ docker compose --env-file .env down --volumes --remove-orphans
 rm -rf generated .state
 rm -f state/vcc-telemetry.cursor state/collector-health.json
 
+# The replay ledger lives outside the stack directory, while the replayed event
+# data lives in the vcc_telemetry Docker volume removed above. Clear both sides
+# together so the next authorised connect fetches the current replay packs
+# instead of incorrectly treating the now-deleted events as already ingested.
+replay_state="${HOME}/.neolabs/soc/replayed-objects.json"
+rm -f "${replay_state}" "${replay_state}.repair-backup"
+
 if [[ "${INCLUDE_ENROLMENT}" == true ]]; then
   rm -f \
     secrets/vcc/client.key \

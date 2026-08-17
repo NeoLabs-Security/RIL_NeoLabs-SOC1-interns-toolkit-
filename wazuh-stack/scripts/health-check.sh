@@ -38,7 +38,11 @@ while true; do
   if [[ "${all_healthy}" == true ]]; then
     # shellcheck disable=SC1091
     source .env
-    printf 'Dashboard: https://%s:%s\n' "${WAZUH_DASHBOARD_BIND}" "${WAZUH_DASHBOARD_PORT}"
+    if [[ "${WAZUH_DASHBOARD_BIND}" == "0.0.0.0" ]]; then
+      printf 'Dashboard: https://127.0.0.1:%s (also published on every host interface)\n' "${WAZUH_DASHBOARD_PORT}"
+    else
+      printf 'Dashboard: https://%s:%s\n' "${WAZUH_DASHBOARD_BIND}" "${WAZUH_DASHBOARD_PORT}"
+    fi
     if [[ -f state/assigned-pod ]]; then
       printf 'Server-issued pod: %s\n' "$(tr -d '\r\n' < state/assigned-pod)"
     else

@@ -52,13 +52,20 @@ Replay validates `synthetic=true`, assigned `pod_id`, required fields and scenar
 
 ## Dashboard
 
-Normal local URL:
+After a successful start the launcher prints:
+
+```text
+Username:  admin
+Password:  <locally generated WAZUH_INDEXER_PASSWORD>
+```
+
+On this machine:
 
 ```text
 https://127.0.0.1:8443
 ```
 
-Human username is `admin`. The human password is the locally generated `WAZUH_INDEXER_PASSWORD` in private `.env`. Internal `wazuh-wui`/`kibanaserver` credentials are separate service credentials.
+From another device that can reach this host, use the `https://<host-ip>:8443` URL printed by the launcher. Internal `wazuh-wui`/`kibanaserver` credentials are separate service credentials, not the human login.
 
 ## Current NeoLabs rules
 
@@ -109,6 +116,7 @@ scripts/prepare-stack.sh
 scripts/preflight.sh
 scripts/start.sh
 scripts/health-check.sh
+scripts/prepare-telemetry-volume.sh
 scripts/verify-telemetry-pipeline.sh
 scripts/repair-telemetry-pipeline.sh
 scripts/telemetry-freshness.sh
@@ -119,13 +127,31 @@ scripts/stop.sh / reset.sh
 
 Do not add `sudo` to those runtime commands simply because Docker/kernel setup failed. Correct the platform setup through the root launcher. `reset.sh` is destructive local recovery and is not normal Week 1 troubleshooting.
 
+## Shutdown recovery and reset behavior
+
+After a host shutdown or power loss, rerun the repository-root platform launcher. It recovers the four-service stack and verifies the complete telemetry path; a manual `docker compose up` is not the supported readiness check.
+
+For an intentional clean-install rehearsal, run this from a Linux or WSL terminal in the repository root:
+
+```bash
+cd wazuh-stack
+bash ./scripts/reset.sh --confirm-destroy-local-data
+cd ..
+```
+
+The reset removes local containers, named volumes/indexed data, saved objects, generated Wazuh configuration/certificates, collector state/telemetry and the local replay-fetch ledger. Removing the replay ledger with the telemetry volume ensures the next launch refetches authorised packs. It preserves `.env`, source and VCC enrolment by default.
+
+The next root-launcher run recreates the stack. `prepare-telemetry-volume.sh` reapplies restrictive collector-write/manager-read permissions before collection begins, and READY remains fail-closed until an assigned-pod event is searchable.
+
+Do not add `--include-enrolment` unless the VCC operator has revoked the old server-side credential and provided a fresh handoff. That option deletes local VCC credentials, certificates, assignment and enrolment state; it does not perform server-side revocation.
+
 ## Private files
 
 Never commit/share `.env`, NeoLabs Access Codes/session files, VCC private keys/certificates/private signed URLs, local Wazuh passwords, enrolment/runtime state, generated backups or another pod's evidence.
 
 ## Network/security design
 
-- Dashboard binds to loopback.
+- Dashboard is published on every host interface (`WAZUH_DASHBOARD_BIND=0.0.0.0`) so another device can open it.
 - Indexer and Wazuh API are not published for student network access.
 - Internal components remain on the Compose internal network.
 - Pod scope is server-managed.

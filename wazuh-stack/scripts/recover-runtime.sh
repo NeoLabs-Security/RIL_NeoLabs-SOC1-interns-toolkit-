@@ -206,6 +206,9 @@ elif (( manager_rc != 0 )); then
   fail 'Wazuh manager could not be recovered automatically. Use the diagnostic file; do not delete indexer or telemetry volumes manually.'
 fi
 
+log 'Preparing restrictive ownership on the shared telemetry volume...'
+bash ./scripts/prepare-telemetry-volume.sh || fail 'Shared telemetry volume permissions could not be prepared safely.'
+
 log 'Starting/reusing the NeoLabs telemetry collector...'
 docker compose --env-file .env up -d --no-deps vcc.telemetry.collector
 
