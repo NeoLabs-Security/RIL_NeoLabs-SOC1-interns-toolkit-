@@ -16,6 +16,10 @@ source .env
 set +a
 : "${COMPOSE_PROJECT_NAME:=neolabs-soc1-wazuh}"
 
+for required in scripts/sync-indexer-security.sh scripts/repair-telemetry-volume.sh scripts/verify-dashboard-api.sh; do
+  [[ -f "$required" ]] || fail "Missing runtime recovery helper: $required"
+done
+
 service_status() {
   local service="$1" id state health
   id="$(docker compose --env-file .env ps -q "$service" 2>/dev/null || true)"
@@ -36,6 +40,26 @@ wait_healthy() {
   status="$(service_status "$service")"
   case "$status" in running/healthy|running/none) return 0 ;; esac
   return 1
+}
+
+indexer_reachable() {
+  docker compose --env-file .env exec -T wazuh.indexer sh -ceu '
+    code="$(curl -sk -o /dev/null -w "%{http_code}" https://localhost:9200/ || true)"
+    case "$code" in 200|401|403) exit 0 ;; *) exit 1 ;; esac
+  ' >/dev/null 2>&1
+}
+
+wait_indexer_reachable() {
+  local seconds="$1" deadline
+  # Keep declaration and arithmetic assignment separate under `set -u`: Bash
+  # expands the RHS of a compound `local` declaration before assigning the new
+  # local variable, which made `seconds` appear unbound on real launchers.
+  deadline=$((SECONDS + seconds))
+  while (( SECONDS < deadline )); do
+    indexer_reachable && return 0
+    sleep 5
+  done
+  indexer_reachable
 }
 
 manager_fatal_reason() {
@@ -102,21 +126,39 @@ save_diagnostics() {
   warn "Saved Wazuh runtime diagnostics: ${ROOT_DIR}/${path}"
 }
 
+sync_indexer_security() {
+  # A persisted OpenSearch Security index can retain credentials from a previous
+  # launcher iteration even though internal_users.yml now contains the current
+  # hashes. Reconcile it only after the indexer HTTP endpoint is alive.
+  bash ./scripts/sync-indexer-security.sh
+}
+
 recover_indexer() {
   log 'Starting the Wazuh indexer first...'
   docker compose --env-file .env up -d --no-deps wazuh.indexer
-  if wait_healthy wazuh.indexer 360; then ok 'Wazuh indexer is healthy.'; return 0; fi
+  if wait_indexer_reachable 240; then
+    if sync_indexer_security && wait_healthy wazuh.indexer 150; then
+      ok 'Wazuh indexer is healthy and its persistent security users are synchronized.'
+      return 0
+    fi
+  fi
 
-  save_diagnostics 'Wazuh indexer did not become healthy after normal start.'
+  save_diagnostics 'Wazuh indexer did not become healthy after normal start/security synchronization.'
   warn 'Indexer is unhealthy. Restarting it once while preserving all index data.'
   docker compose --env-file .env restart wazuh.indexer >/dev/null 2>&1 || true
-  if wait_healthy wazuh.indexer 180; then ok 'Wazuh indexer recovered after restart.'; return 0; fi
+  if wait_indexer_reachable 180 && sync_indexer_security && wait_healthy wazuh.indexer 150; then
+    ok 'Wazuh indexer recovered after restart and security synchronization.'
+    return 0
+  fi
 
   warn 'Indexer is still unhealthy. Recreating only its container; the persistent index data volume is preserved.'
   docker compose --env-file .env up -d --force-recreate --no-deps wazuh.indexer
-  if wait_healthy wazuh.indexer 240; then ok 'Wazuh indexer recovered after container recreation.'; return 0; fi
+  if wait_indexer_reachable 240 && sync_indexer_security && wait_healthy wazuh.indexer 180; then
+    ok 'Wazuh indexer recovered after container recreation.'
+    return 0
+  fi
 
-  save_diagnostics 'Wazuh indexer did not recover after restart/container recreation.'
+  save_diagnostics 'Wazuh indexer did not recover after restart/container recreation/security synchronization.'
   return 1
 }
 
@@ -139,11 +181,9 @@ recover_manager() {
     fi
   fi
 
-  # Give a freshly started manager enough time to expose deterministic config
-  # errors before restarting it. Configuration mistakes are not healed by loops.
-  if wait_manager_healthy 45; then
+  if wait_manager_healthy 60; then
     printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager is healthy.'
+    ok 'Wazuh manager and API are healthy.'
     return 0
   else
     rc=$?
@@ -154,7 +194,7 @@ recover_manager() {
   docker compose --env-file .env restart wazuh.manager >/dev/null 2>&1 || true
   if wait_manager_healthy 180; then
     printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager recovered after restart.'
+    ok 'Wazuh manager/API recovered after restart.'
     return 0
   else
     rc=$?
@@ -166,7 +206,7 @@ recover_manager() {
   docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
   if wait_manager_healthy 180; then
     printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager recovered after container recreation.'
+    ok 'Wazuh manager/API recovered after container recreation.'
     return 0
   else
     rc=$?
@@ -181,7 +221,7 @@ recover_manager() {
   docker compose --env-file .env up -d --no-deps wazuh.manager
   if wait_manager_healthy 240; then
     printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager recovered after rebuilding its local configuration volume.'
+    ok 'Wazuh manager/API recovered after rebuilding its local configuration volume.'
     return 0
   else
     rc=$?
@@ -189,6 +229,48 @@ recover_manager() {
     (( rc == 2 )) && return 2
     return 1
   fi
+}
+
+recover_dashboard() {
+  local desired applied force=0
+  desired="$(tr -d '\r\n' < state/runtime-credentials.desired.sha256 2>/dev/null || true)"
+  applied="$(tr -d '\r\n' < state/dashboard-api.applied.sha256 2>/dev/null || true)"
+  [[ -n "$desired" && "$desired" == "$applied" ]] || force=1
+
+  log 'Starting the Wazuh dashboard only after manager/indexer health and credentials are proven...'
+  if (( force )); then
+    docker compose --env-file .env up -d --force-recreate --no-deps wazuh.dashboard
+  else
+    docker compose --env-file .env up -d --no-deps wazuh.dashboard
+  fi
+
+  if ! wait_healthy wazuh.dashboard 360; then
+    save_diagnostics 'Wazuh dashboard did not become healthy after manager/indexer recovery.'
+    warn 'Dashboard did not become healthy on the first attempt. Recreating only the dashboard container.'
+    docker compose --env-file .env up -d --force-recreate --no-deps wazuh.dashboard
+    if ! wait_healthy wazuh.dashboard 240; then
+      save_diagnostics 'Wazuh dashboard did not recover after container recreation.'
+      return 1
+    fi
+  fi
+
+  if bash ./scripts/verify-dashboard-api.sh 60; then
+    [[ -z "$desired" ]] || { printf '%s\n' "$desired" > state/dashboard-api.applied.sha256; chmod 600 state/dashboard-api.applied.sha256 2>/dev/null || true; }
+    ok 'Wazuh dashboard and manager API connector are healthy.'
+    return 0
+  fi
+
+  # Manager startup re-applies API_USERNAME/API_PASSWORD. If an old manager API
+  # credential or dashboard config survived a previous iteration, recycle only
+  # these two stateless containers and verify the authenticated path again.
+  warn 'Dashboard API authentication is stale. Restarting the manager once and recreating only the dashboard.'
+  docker compose --env-file .env restart wazuh.manager >/dev/null 2>&1 || true
+  wait_manager_healthy 180 || return 1
+  docker compose --env-file .env up -d --force-recreate --no-deps wazuh.dashboard
+  wait_healthy wazuh.dashboard 240 || return 1
+  bash ./scripts/verify-dashboard-api.sh 90 || return 1
+  [[ -z "$desired" ]] || { printf '%s\n' "$desired" > state/dashboard-api.applied.sha256; chmod 600 state/dashboard-api.applied.sha256 2>/dev/null || true; }
+  ok 'Wazuh dashboard API connector recovered.'
 }
 
 log 'Validating Docker Compose before runtime recovery...'
@@ -206,28 +288,19 @@ elif (( manager_rc != 0 )); then
   fail 'Wazuh manager could not be recovered automatically. Use the diagnostic file; do not delete indexer or telemetry volumes manually.'
 fi
 
-log 'Preparing restrictive ownership on the shared telemetry volume...'
-bash ./scripts/prepare-telemetry-volume.sh || fail 'Shared telemetry volume permissions could not be prepared safely.'
-
+bash ./scripts/repair-telemetry-volume.sh
 log 'Starting/reusing the NeoLabs telemetry collector...'
 docker compose --env-file .env up -d --no-deps vcc.telemetry.collector
 
-log 'Starting the Wazuh dashboard only after manager and indexer health is proven...'
-docker compose --env-file .env up -d --no-deps wazuh.dashboard
-if ! wait_healthy wazuh.dashboard 360; then
-  save_diagnostics 'Wazuh dashboard did not become healthy after manager/indexer recovery.'
-  warn 'Dashboard did not become healthy on the first attempt. Recreating only the dashboard container.'
-  docker compose --env-file .env up -d --force-recreate --no-deps wazuh.dashboard
-  if ! wait_healthy wazuh.dashboard 240; then
-    save_diagnostics 'Wazuh dashboard did not recover after container recreation.'
-    fail 'Wazuh dashboard could not be recovered automatically.'
-  fi
+if ! recover_dashboard; then
+  save_diagnostics 'Wazuh dashboard or its manager API connector could not be recovered.'
+  fail 'Wazuh dashboard/API connector could not be recovered automatically.'
 fi
-ok 'Wazuh dashboard is healthy.'
 
 if ! wait_healthy vcc.telemetry.collector 150; then
   save_diagnostics 'NeoLabs telemetry collector did not become healthy.'
   warn 'Telemetry collector is not healthy yet. Recreating it once without changing pod credentials or telemetry history.'
+  bash ./scripts/repair-telemetry-volume.sh
   docker compose --env-file .env up -d --force-recreate --no-deps vcc.telemetry.collector
   if ! wait_healthy vcc.telemetry.collector 150; then
     save_diagnostics 'NeoLabs telemetry collector did not recover after recreation.'
@@ -236,4 +309,4 @@ if ! wait_healthy vcc.telemetry.collector 150; then
 fi
 ok 'NeoLabs telemetry collector is healthy.'
 
-printf 'Wazuh core services recovered/started successfully.\n'
+printf 'Wazuh core services and the dashboard API connector recovered/started successfully.\n'

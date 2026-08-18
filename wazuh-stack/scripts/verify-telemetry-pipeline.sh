@@ -84,6 +84,10 @@ indexed_hits() {
   printf '%s' "${response}" | python3 -c 'import json,sys; d=json.load(sys.stdin); t=d.get("hits",{}).get("total",0); print(t.get("value",0) if isinstance(t,dict) else t)'
 }
 
+# Return codes:
+#   0 = fully searchable
+#   1 = telemetry delivery/indexing is not ready
+#   2 = deterministic rule-engine failure
 check_once() {
   local pod hits
   pod="$(resolve_pod | tail -n1 | tr -d '\r\n')"
@@ -93,18 +97,22 @@ check_once() {
     service_is_healthy "${service}" || { printf '[WAIT] %s is not healthy yet.\n' "${service}" >&2; return 1; }
   done
 
-  raw_event_present "${pod}" || { printf '[WAIT] No validated VCC event for %s is present in the shared telemetry volume yet.\n' "${pod}" >&2; return 1; }
   rules_are_loaded "${pod}" || { printf '[FAIL] NeoLabs VCC custom rules are not active in wazuh-analysisd.\n' >&2; return 2; }
+
+  if ! raw_event_present "${pod}"; then
+    printf '[WAIT] Night Watch telemetry for %s has not reached the local shared telemetry volume yet.\n' "${pod}" >&2
+    return 1
+  fi
 
   hits="$(indexed_hits "${pod}" 2>/dev/null || printf '0')"
   [[ "${hits}" =~ ^[0-9]+$ ]] || hits=0
   if (( hits < 1 )); then
-    printf '[WAIT] VCC events exist locally but are not searchable in wazuh-alerts-* yet.\n' >&2
+    printf '[WAIT] Night Watch events exist locally but are not searchable in wazuh-alerts-* yet.\n' >&2
     return 1
   fi
 
   printf '[OK] VCC_TELEMETRY_SEARCHABLE pod=%s alerts=%s\n' "${pod}" "${hits}"
-  printf '[OK] Manager JSON input, NeoLabs rules, Filebeat/indexer path and dashboard backing index are working.\n'
+  printf '[OK] Night Watch delivery, Manager JSON input, NeoLabs rules and Filebeat/indexer search path are working.\n'
   return 0
 }
 
@@ -120,7 +128,7 @@ while true; do
   fi
   now="$(date +%s)"
   if (( WAIT_SECONDS == 0 || now - started >= WAIT_SECONDS )); then
-    printf 'ERROR: Assigned-pod VCC telemetry did not become searchable within %ss.\n' "${WAIT_SECONDS}" >&2
+    printf 'ERROR: Active Night Watch telemetry for the assigned pod did not become searchable within %ss.\n' "${WAIT_SECONDS}" >&2
     exit 1
   fi
   sleep 10

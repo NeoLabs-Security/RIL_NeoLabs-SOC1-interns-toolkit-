@@ -1,9 +1,7 @@
 # NeoLabs Wazuh Setup and Troubleshooting Guide
 
-**Tested baseline:** Wazuh 4.14.7
-
-**Reconciled:** 2026-08-17
-
+**Tested baseline:** Wazuh 4.14.7  
+**Reconciled:** 2026-08-14  
 **Scope:** learner-owned workstation + authorised synthetic VCC telemetry only
 
 ## 1. Start with the platform root launcher
@@ -89,11 +87,11 @@ Local indexer filesystem warnings begin at 85% and become critical at 92%. Prese
 
 The launchers generate `wazuh-stack/.env` only when it is absent and preserve an existing file. Do not regenerate local secrets because the repository was updated.
 
-Human dashboard login (printed on the `SOC WORKSTATION READY` screen):
+Human dashboard login:
 
 ```text
 Username: admin
-Password: the locally generated WAZUH_INDEXER_PASSWORD
+Password source: local WAZUH_INDEXER_PASSWORD
 ```
 
 `WAZUH_API_PASSWORD` and `WAZUH_DASHBOARD_PASSWORD` are internal service credentials, not the human login.
@@ -117,8 +115,6 @@ The pod entered during login is confirmation only; server assignment remains aut
 Run Doctor, then verify the server state is an authorised SOC surface, raw telemetry contains synthetic assigned-pod records, replay validation did not reject pod/scenario fields, live enrolment is current when LIVE, and internet/TLS connectivity is available.
 
 Replay preserves original `event_time`; replay time is not the incident sequence.
-
-Normal startup prepares the shared telemetry volume after the manager mounts it. The collector receives write access, the Wazuh manager receives read access and the directory is not made world-writable. This prevents a fresh Docker volume from blocking replay writes. Reset also removes the local replay-fetch ledger together with the telemetry volume, ensuring the next launch refetches authorised replay packs instead of incorrectly treating deleted events as already downloaded.
 
 ## 9. Raw events exist but Wazuh has no alerts
 
@@ -155,51 +151,20 @@ The root startup path permits one bounded local telemetry repair. It may reasser
 
 If searchability still cannot be proven, stop relying on that workstation for assignment conclusions and send redacted Doctor output to the mentor.
 
-## 14. After shutdown, reboot or accidental power loss
+## 14. Headless Linux dashboard access
 
-An interrupted machine does not require reinstallation or reset. Start Docker Desktop on Windows if it is not running, then rerun `START-NEOLABS-SOC.cmd`. On Linux/Ubuntu, rerun `./start-neolabs-soc.sh`. The launcher reuses local secrets, generated configuration, enrolment and indexed data, then recovers and validates all four services.
+The dashboard remains loopback-only. A headless server launcher prints an SSH local-forward example. Use that secure tunnel from the intern's own computer instead of changing the dashboard binding to a public address.
 
-Do not bypass this with a bare `docker compose up`: container health alone does not prove that telemetry reached the dashboard index. Wait for READY. If READY is not reached, use the platform `doctor` command and retain the exact redacted failure output.
-
-## 15. Destructive local reset
-
-Use reset only for an intentional clean-install rehearsal or mentor-approved local recovery. From a Linux or WSL terminal in the repository root:
-
-```bash
-cd wazuh-stack
-bash ./scripts/reset.sh --confirm-destroy-local-data
-cd ..
-```
-
-This removes local stack containers, Wazuh Docker volumes, indexed alerts, saved objects, generated Wazuh configuration/certificates, collector telemetry/state and the replay-fetch ledger. The ledger and telemetry volume are removed together so a later replay is not skipped.
-
-The default reset preserves `wazuh-stack/.env`, repository source and the local VCC enrolment/assigned-pod state. Restart only through the platform root launcher:
-
-```text
-Windows: START-NEOLABS-SOC.cmd
-Linux:   ./start-neolabs-soc.sh
-```
-
-The next launch regenerates Wazuh assets, restores restrictive telemetry-volume ownership, refetches authorised replay packs when applicable and requires a searchable assigned-pod event before READY.
-
-Do not use `--include-enrolment` for a normal reset. It also removes local VCC client keys/certificates, the assigned-pod record and enrolment state, but it cannot revoke the server-side credential. Use it only after a VCC operator revokes the old enrolment and supplies a fresh authorised handoff.
-
-## 16. Headless Linux / other-device dashboard access
-
-The dashboard is published on every host interface (`0.0.0.0:8443`). After READY, the launcher prints the username, password and `https://<host-ip>:8443` URLs. Open one of those URLs from another device that can reach this host.
-
-The certificate is self-signed, so continue past the browser warning. If the page does not load, allow inbound TCP `8443` on the host or cloud firewall. Indexer and manager ports stay unpublished.
-
-## 17. Advanced internal commands
+## 15. Advanced internal commands
 
 Mentors may inspect `wazuh-stack/scripts/` directly for targeted diagnosis, backup/restore or CI rehearsal. These are not student setup steps. `reset.sh --confirm-destroy-local-data` is destructive local recovery and is never a normal startup fix.
 
-## 18. Evidence to send a mentor
+## 16. Evidence to send a mentor
 
 Useful redacted evidence includes Doctor PASS/WARN/FAIL lines, current assigned pod/scenario/runtime state without credentials, latest event freshness, `docker compose ps` status, small relevant logs and event/rule IDs/screenshots.
 
 Never send `.env`, admin password, Access Code, session token, private key/certificate contents, signed private URLs or another pod's data.
 
-## 19. Stop conditions
+## 17. Stop conditions
 
 Stop/escalate on cross-pod events/access, real personal/production data, exposed credentials/private keys, unexpected infrastructure access, external-target traffic or service instability. Do not weaken isolation/security controls to make a troubleshooting check pass.

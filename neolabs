@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'ERROR: python3 is required for the NeoLabs CLI. Run `bash start-neolabs-soc.sh` first so the supported runtime can be prepared.\n' >&2
+  exit 2
+fi
+
+# The root CLI is also a supported stack-entry path (`bash neolabs connect`).
+# Propagate the same host profile used by the full launcher so Wazuh dashboard
+# exposure/preflight cannot disagree with a previous launcher run. Treat WSL as
+# the Windows workstation profile even when this wrapper is invoked from Bash.
+if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease 2>/dev/null; then
+  export NEOLABS_HOST_MODE=windows
+else
+  export NEOLABS_HOST_MODE=linux
+fi
+
+exec python3 -m tools.cli "$@"

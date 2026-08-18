@@ -75,7 +75,11 @@ raw_latest="${raw_result#*|}"
 if [[ "${raw_count}" =~ ^[0-9]+$ ]] && (( raw_count > 0 )); then
   pass "3/7 Raw VCC event file — ${raw_count} assigned-pod synthetic event(s) present; newest source event_time=${raw_latest:-unknown}."
 else
-  fail_stage "3/7 Raw VCC event file — no validated event for ${pod} is present in vcc-events.ndjson."
+  if service_healthy vcc.telemetry.collector; then
+    warn "3/7 Raw VCC event file — local collector is healthy, but no validated event for ${pod} has arrived yet."
+  else
+    fail_stage "3/7 Raw VCC event file — no validated event for ${pod} is present and the collector is not healthy."
+  fi
 fi
 
 # 4/7 — Rule engine actually loads and matches the NeoLabs rules.
@@ -96,18 +100,20 @@ fi
 
 # 6/7 — Indexer health plus assigned-pod searchable alert count.
 if service_healthy wazuh.indexer; then
-  cluster="$(docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" https://localhost:9200/_cluster/health 2>/dev/null || true)"
+  cluster="$(docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" https://localhost:9200/_cluster/health' 2>/dev/null || true)"
   cluster_status="$(printf '%s' "${cluster}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("status","unknown"))
 except Exception: print("unknown")')"
   query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
-  indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search" 2>/dev/null || true)"
+  indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"
   hits="$(printf '%s' "${indexed:-{}}" | python3 -c 'import json,sys
 try:
  d=json.load(sys.stdin); t=d.get("hits",{}).get("total",0); print(t.get("value",0) if isinstance(t,dict) else t)
 except Exception: print(0)')"
   if [[ "${cluster_status}" =~ ^(green|yellow)$ && "${hits}" =~ ^[0-9]+$ ]] && (( hits > 0 )); then
     pass "6/7 Wazuh indexer — cluster=${cluster_status}; ${hits} NeoLabs alert(s) searchable for ${pod}."
+  elif [[ "${cluster_status}" =~ ^(green|yellow)$ && "${raw_count:-0}" =~ ^[0-9]+$ ]] && (( ${raw_count:-0} == 0 )); then
+    pass "6/7 Wazuh indexer — cluster=${cluster_status}; indexer is healthy while assigned-pod telemetry is still pending."
   else
     fail_stage "6/7 Wazuh indexer — cluster=${cluster_status}; assigned-pod searchable alerts=${hits}."
   fi
@@ -115,24 +121,27 @@ else
   fail_stage '6/7 Wazuh indexer — container is not healthy.'
 fi
 
-# 7/7 — Dashboard process is reachable, and preconfigured objects were provisioned when possible.
-dash_code="$(curl -sk -u "admin:${WAZUH_INDEXER_PASSWORD}" -o /dev/null -w '%{http_code}' "https://127.0.0.1:${WAZUH_DASHBOARD_PORT:-8443}/status" 2>/dev/null || printf 000)"
-if [[ "${dash_code}" =~ ^(200|302)$ ]]; then
+# 7/7 — Prove both the authenticated dashboard security endpoint and the
+# dashboard -> wazuh.manager API connection shown under Dashboard > Server APIs.
+dash_code="$(curl -sk -u "admin:${WAZUH_INDEXER_PASSWORD}" -o /dev/null -w '%{http_code}' "https://127.0.0.1:${WAZUH_DASHBOARD_PORT:-8443}/api/status" 2>/dev/null || printf 000)"
+api_ok=0
+if bash ./scripts/verify-dashboard-api.sh 15 >/dev/null 2>&1; then api_ok=1; fi
+if [[ "${dash_code}" == 200 && $api_ok -eq 1 ]]; then
   if [[ -f state/dashboard-objects.ready ]] && [[ "$(tr -d '\r\n' < state/dashboard-objects.ready)" == "${pod}" ]]; then
-    pass '7/7 Wazuh dashboard — reachable; NeoLabs Night Watch and Telemetry Health saved objects are provisioned.'
+    pass '7/7 Wazuh dashboard — authenticated API status is reachable, manager API connector is online, and NeoLabs saved objects are provisioned.'
   else
-    pass '7/7 Wazuh dashboard — reachable.'
-    warn 'Saved NeoLabs dashboard objects are not confirmed; rerun START-NEOLABS-SOC.cmd to retry provisioning.'
+    pass '7/7 Wazuh dashboard — authenticated API status is reachable and the manager API connector is online.'
+    warn 'Saved NeoLabs dashboard objects are not confirmed; rerun the root launcher to retry provisioning.'
   fi
 else
-  fail_stage "7/7 Wazuh dashboard — /status returned HTTP ${dash_code}."
+  fail_stage "7/7 Wazuh dashboard — authenticated /api/status HTTP=${dash_code}; manager API connector=$([[ $api_ok -eq 1 ]] && printf online || printf offline)."
 fi
 
 printf '\n'
 ./scripts/telemetry-freshness.sh || true
 ./scripts/disk-warning.sh || true
 
-retention="$(docker compose --env-file .env exec -T wazuh.indexer curl -fsSk -u "admin:${WAZUH_INDEXER_PASSWORD}" https://localhost:9200/_plugins/_ism/policies/neolabs-wazuh-alert-retention 2>/dev/null || true)"
+retention="$(docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" https://localhost:9200/_plugins/_ism/policies/neolabs-wazuh-alert-retention' 2>/dev/null || true)"
 if [[ -n "${retention}" ]]; then
   retention_days="$(printf '%s' "${retention}" | python3 -c 'import json,sys,re
 try:
@@ -145,7 +154,7 @@ fi
 
 printf '\n'
 if (( failures == 0 )); then
-  printf 'NEOLABS_DOCTOR_OK — the core VCC → Wazuh → indexer → dashboard path is healthy.\n'
+  printf 'NEOLABS_DOCTOR_OK — the local Wazuh/API path is healthy; VCC event arrival may still be pending when noted above.\n'
   exit 0
 fi
 printf 'NEOLABS_DOCTOR_FAILED — %s core stage(s) need attention.\n' "${failures}" >&2

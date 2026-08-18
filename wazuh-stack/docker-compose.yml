@@ -41,13 +41,14 @@ services:
       - ./generated/config/wazuh_cluster/wazuh_manager.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./config/rules/neolabs_vcc_rules.xml:/var/ossec/etc/rules/neolabs_vcc_rules.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running'"]
+      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running' && /var/ossec/bin/wazuh-control status | grep -q 'wazuh-apid is running'"]
       interval: 30s
       timeout: 10s
       retries: 10
       start_period: 90s
     networks:
       - wazuh_internal
+      - manager_egress
 
   wazuh.indexer:
     image: wazuh/wazuh-indexer:${WAZUH_VERSION}
@@ -108,13 +109,17 @@ services:
       wazuh.manager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -skf https://localhost:5601/app/login >/dev/null"]
+      # /status is protected and returned HTTP 401 to the anonymous probe on live
+      # Wazuh 4.14.7 hosts. Probe the public login surface and still require a
+      # successful HTTP response; authenticated dashboard->manager API is separate.
+      test: ["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]
       interval: 30s
       timeout: 10s
       retries: 15
       start_period: 120s
     networks:
       - wazuh_internal
+      - dashboard_access
 
   vcc.telemetry.collector:
     build:
@@ -129,14 +134,15 @@ services:
       VCC_CLIENT_KEY_PATH: /run/vcc-secrets/client.key
       VCC_CA_CERT_PATH: /run/vcc-secrets/ca.crt
       VCC_INSTALLATION_ID_PATH: /run/vcc-secrets/installation-id
-      VCC_TELEMETRY_CURSOR_PATH: /state/vcc-telemetry.cursor
+      VCC_ASSIGNED_POD_PATH: /runtime-state/assigned-pod
+      VCC_TELEMETRY_CURSOR_PATH: /runtime-state/vcc-telemetry.cursor
       VCC_OUTPUT_PATH: /data/vcc-events.ndjson
-      VCC_HEALTH_PATH: /state/collector-health.json
+      VCC_HEALTH_PATH: /runtime-state/collector-health.json
       VCC_POLL_INTERVAL_SECONDS: ${VCC_POLL_INTERVAL_SECONDS:-15}
     volumes:
       - vcc_telemetry:/data
-      - ./state:/state
-      - ./secrets/vcc:/run/vcc-secrets:ro
+      - vcc_runtime_state:/runtime-state
+      - vcc_runtime_secrets:/run/vcc-secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "python /app/healthcheck.py"]
       interval: 30s
@@ -169,7 +175,16 @@ volumes:
   wazuh-dashboard-config:
   wazuh-dashboard-custom:
   vcc_telemetry:
+  vcc_runtime_secrets:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_secrets
+    external: true
+  vcc_runtime_state:
+    name: ${COMPOSE_PROJECT_NAME}_vcc_runtime_state
+    external: true
 
 networks:
   wazuh_internal:
+    internal: true
+  dashboard_access:
+  manager_egress:
   vcc_egress:

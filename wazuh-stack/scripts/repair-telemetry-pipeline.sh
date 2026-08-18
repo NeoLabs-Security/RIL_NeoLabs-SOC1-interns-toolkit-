@@ -19,11 +19,12 @@ PY
 printf '[repair] Repairing only the local SOC telemetry path; VCC server state and pod scope will not be changed.\n'
 printf '[repair] Current lab state: %s\n' "${lab_state}"
 
+# Older named volumes can be root-owned while the collector deliberately runs
+# unprivileged. Repair that permission boundary before any replay append/restart.
+bash ./scripts/repair-telemetry-volume.sh
+
 # Reassert the existing containers/configuration without deleting named volumes.
 docker compose --env-file .env up -d wazuh.indexer wazuh.manager vcc.telemetry.collector wazuh.dashboard >/dev/null
-# A newly created named volume is root-owned by default. Reassert the collector
-# ownership before replay or live telemetry attempts to create its NDJSON file.
-bash ./scripts/prepare-telemetry-volume.sh
 # Restart only local consumers of the shared telemetry file. Never reset VCC or
 # delete the student's persistent Wazuh/indexer named volumes.
 docker compose --env-file .env restart wazuh.manager vcc.telemetry.collector >/dev/null
@@ -39,7 +40,7 @@ case "${lab_state}" in
       rm -f "${replay_state}"
     fi
     printf '[repair] Re-fetching the currently authorised pod replay pack so Wazuh sees a fresh file append.\n'
-    if (cd "${REPO_ROOT}" && python3 tools/neolabs.py connect); then
+    if (cd "${REPO_ROOT}" && python3 -m tools.cli connect); then
       rm -f "${backup}"
     else
       if [[ -f "${backup}" ]]; then

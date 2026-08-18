@@ -39,11 +39,13 @@ jobs:
       - name: Validate shell syntax and Linux root launcher
         run: |
           set -euo pipefail
+          bash -n neolabs
           bash -n start-neolabs-soc.sh
           bash -n internal/linux/Test-NeoLabsRuntime.sh
           bash -n internal/linux/Repair-NeoLabsRuntime.sh
           bash -n internal/common/Start-NeoLabsSOC.sh
           while IFS= read -r -d '' file; do bash -n "$file"; done < <(find wazuh-stack/scripts wazuh-stack/tests -type f -name '*.sh' -print0)
+          bash neolabs --help >/dev/null
           bash start-neolabs-soc.sh --validate-only
 
       - name: Validate clean root entrypoint layout
@@ -52,6 +54,7 @@ jobs:
           from pathlib import Path
           required = [
               'START-NEOLABS-SOC.cmd', 'start-neolabs-soc.sh',
+              'neolabs.cmd', 'neolabs',
               'internal/common/Start-NeoLabsSOC.sh',
               'internal/linux/Test-NeoLabsRuntime.sh',
               'internal/linux/Repair-NeoLabsRuntime.sh',
@@ -60,12 +63,21 @@ jobs:
               'internal/windows/Repair-NeoLabsRuntime.ps1',
               'internal/windows/Recover-DockerDesktopBackend.ps1',
               'internal/windows/Start-NeoLabsSOC.ps1',
+              'internal/windows/Invoke-NeoLabsCLI.ps1',
           ]
           missing = [p for p in required if not Path(p).is_file()]
-          if missing: raise SystemExit('Missing launcher components: ' + ', '.join(missing))
-          legacy = ['CHECK-NEOLABS-SOC.cmd','START-NEOLABS-DOCKER.cmd','Start-NeoLabsDocker.ps1','Start-NeoLabsSOC.ps1','setup-windows.cmd','neolabs.cmd','neolabs-local.cmd','neolabs.ps1']
+          if missing: raise SystemExit('Missing launcher/CLI components: ' + ', '.join(missing))
+          legacy = ['CHECK-NEOLABS-SOC.cmd','START-NEOLABS-DOCKER.cmd','Start-NeoLabsDocker.ps1','Start-NeoLabsSOC.ps1','setup-windows.cmd','neolabs-local.cmd','neolabs.ps1']
           present = [p for p in legacy if Path(p).exists()]
           if present: raise SystemExit('Legacy helpers must not clutter repository root: ' + ', '.join(present))
+
+          linux_cli = Path('neolabs').read_text(encoding='utf-8')
+          windows_cli = Path('neolabs.cmd').read_text(encoding='utf-8')
+          windows_cli_adapter = Path('internal/windows/Invoke-NeoLabsCLI.ps1').read_text(encoding='utf-8')
+          if 'python3 -m tools.cli' not in linux_cli or 'cd "$ROOT_DIR"' not in linux_cli:
+              raise SystemExit('Linux root NeoLabs CLI must run tools.cli from repository root')
+          if 'Invoke-NeoLabsCLI.ps1' not in windows_cli or 'python3 -m tools.cli' not in windows_cli_adapter:
+              raise SystemExit('Windows root NeoLabs CLI must delegate to the WSL2 module adapter')
           PY
 
       - name: Validate telemetry-to-dashboard and startup contract
@@ -214,7 +226,7 @@ jobs:
       - name: Validate internal Windows PowerShell syntax
         shell: powershell
         run: |
-          foreach ($path in @('.\internal\windows\Ensure-NeoLabsRuntime.ps1','.\internal\windows\Test-NeoLabsDockerRuntime.ps1','.\internal\windows\Repair-NeoLabsRuntime.ps1','.\internal\windows\Recover-DockerDesktopBackend.ps1','.\internal\windows\Start-NeoLabsDocker.ps1','.\internal\windows\Start-NeoLabsSOC.ps1')) {
+          foreach ($path in @('.\internal\windows\Ensure-NeoLabsRuntime.ps1','.\internal\windows\Test-NeoLabsDockerRuntime.ps1','.\internal\windows\Repair-NeoLabsRuntime.ps1','.\internal\windows\Recover-DockerDesktopBackend.ps1','.\internal\windows\Start-NeoLabsDocker.ps1','.\internal\windows\Start-NeoLabsSOC.ps1','.\internal\windows\Invoke-NeoLabsCLI.ps1')) {
             $tokens=$null; $errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)
             if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
@@ -239,3 +251,11 @@ jobs:
           $runtime=$text.IndexOf('Ensure-NeoLabsRuntime.ps1'); $soc=$text.IndexOf('Start-NeoLabsSOC.ps1')
           if ($runtime -lt 0 -or $soc -lt 0 -or $runtime -gt $soc) { throw 'Root CMD must route runtime authority before SOC adapter' }
           foreach ($child in @('Repair-NeoLabsRuntime.ps1','Test-NeoLabsDockerRuntime.ps1','Recover-DockerDesktopBackend.ps1')) { if ($text -match [regex]::Escape($child)) { throw "Root CMD must not directly call $child" } }
+
+      - name: Validate root Windows NeoLabs CLI wrapper
+        shell: powershell
+        run: |
+          $cmd=Get-Content .\neolabs.cmd -Raw
+          $adapter=Get-Content .\internal\windows\Invoke-NeoLabsCLI.ps1 -Raw
+          if ($cmd -notmatch 'Invoke-NeoLabsCLI\.ps1') { throw 'neolabs.cmd must delegate to the Windows CLI adapter' }
+          if ($adapter -notmatch 'python3 -m tools\.cli') { throw 'Windows CLI adapter must invoke tools.cli as a module' }

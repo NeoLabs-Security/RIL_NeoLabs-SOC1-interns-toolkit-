@@ -32,7 +32,7 @@ Normal dashboard URL:
 https://127.0.0.1:8443
 ```
 
-Login username is `admin`. The launcher prints the locally generated password after a successful start. From another device, use one of the `https://<host-ip>:8443` URLs printed on the READY screen.
+Login username is `admin`. Windows copies the locally generated password to the clipboard without printing it. A headless Linux host prints secure port-forward guidance rather than exposing the dashboard publicly.
 
 ## Current NeoLabs investigation views
 

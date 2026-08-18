@@ -8,48 +8,54 @@ For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`
 
 ### Physical Windows 10/11 workstation
 
-Pull the latest toolkit, then double-click:
+Pull the latest toolkit, then either double-click `START-NEOLABS-SOC.cmd` or run from PowerShell:
+
+```powershell
+.\START-NEOLABS-SOC.cmd
+```
+
+From Command Prompt, run:
 
 ```text
 START-NEOLABS-SOC.cmd
 ```
 
-This is the only normal Windows entry point. It first checks that the intern is on a supported physical Windows workstation. If it detects Windows Server or a Windows virtual machine/VPS guest, it stops before WSL/Docker setup and directs the intern to use an Ubuntu/Debian VPS instead.
+This is the normal Windows startup/repair entry point. It first checks that the intern is on a supported physical Windows workstation. If it detects Windows Server or a Windows virtual machine/VPS guest, it stops before WSL/Docker setup and directs the intern to use an Ubuntu/Debian VPS instead.
 
 On supported Windows it owns WSL2/Docker Desktop setup, first-run Linux prerequisites, the required Wazuh indexer kernel setting, first-run Wazuh preparation, NeoLabs authentication, LIVE/REPLAY connection, Wazuh health, telemetry-to-index verification, freshness/retention checks, saved Night Watch views and dashboard startup.
 
 If Windows has just enabled WSL or installed a Linux distribution, Windows may require a restart and/or one first launch of the Linux distro to create its Linux user. Rerun the same CMD afterward; do not start picking individual setup scripts.
 
-Diagnostics/status/login are subcommands of the same root file:
+Use the root NeoLabs CLI wrapper for status/login/Doctor and other CLI commands:
 
-```text
-START-NEOLABS-SOC.cmd doctor
-START-NEOLABS-SOC.cmd status
-START-NEOLABS-SOC.cmd login
+```powershell
+.\neolabs.cmd --help
+.\neolabs.cmd status
+.\neolabs.cmd doctor
+.\neolabs.cmd login
+.\neolabs.cmd connect
 ```
+
+Do not navigate into `tools/` to run the Python files manually.
 
 ### Linux / Ubuntu workstation
 
-From the repository root, use:
+From the repository root, use the canonical Linux launcher syntax:
 
 ```bash
 bash start-neolabs-soc.sh
 ```
 
-The launcher fixes its executable permission during setup, so subsequent runs may use:
-
-```bash
-./start-neolabs-soc.sh
-```
-
 On Ubuntu/Debian it can install missing base packages and Docker Engine + Compose v2, configure the required Wazuh indexer kernel setting, prepare Wazuh and complete the same NeoLabs/telemetry verification path. Run the launcher as your **normal Linux user**; it invokes `sudo` itself only for the OS-level actions that require administrator privileges.
 
-Linux diagnostics/status/login:
+Use the root Linux NeoLabs CLI wrapper instead of changing into `tools/`:
 
 ```bash
-./start-neolabs-soc.sh doctor
-./start-neolabs-soc.sh status
-./start-neolabs-soc.sh login
+bash neolabs --help
+bash neolabs status
+bash neolabs doctor
+bash neolabs login
+bash neolabs connect
 ```
 
 ### VPS / remote server
@@ -70,7 +76,7 @@ Then use:
 bash start-neolabs-soc.sh
 ```
 
-This uses Docker Engine directly and avoids the WSL2/nested-virtualisation dependency. After a successful start the launcher prints the Wazuh username, password and URLs that other devices can use to open the dashboard.
+This uses Docker Engine directly and avoids the WSL2/nested-virtualisation dependency. On a headless server the dashboard is published on TCP 8443 by the supported Linux profile; cloud/host firewall rules must restrict access to the intern's approved source IP.
 
 ## Do not begin until READY
 
@@ -82,55 +88,35 @@ READY means an actual synthetic event for the **server-assigned pod** is indexed
 
 ## Wazuh login
 
-After `SOC WORKSTATION READY`, the launcher prints:
-
-```text
-Username:  admin
-Password:  <locally generated WAZUH_INDEXER_PASSWORD>
-```
-
-On this machine:
+Normal local dashboard:
 
 ```text
 https://127.0.0.1:8443
 ```
 
-From another phone, laptop or browser that can reach this host, use one of the `https://<host-ip>:8443` URLs printed by the launcher. The certificate is self-signed, so the browser warning is expected. If the page does not load, allow inbound TCP `8443` on the host or cloud firewall. Windows also copies the password to the clipboard.
-
-## After a shutdown or reboot
-
-Do not reinstall or reset the stack. Start Docker Desktop on Windows if necessary, then run the same normal launcher again:
-
-```text
-Windows: START-NEOLABS-SOC.cmd
-Linux:   ./start-neolabs-soc.sh
-```
-
-The launcher reuses the existing local configuration and data, recovers the indexer, manager, dashboard and telemetry collector, and verifies assigned-pod telemetry before READY. If it fails, run the platform `doctor` command and share only redacted output with a mentor.
-
-## Reset is an advanced destructive operation
-
-Use `wazuh-stack/scripts/reset.sh --confirm-destroy-local-data` only for an intentional clean-install test or mentor-approved recovery, never for a normal reboot. It removes local Wazuh data and generated assets but preserves enrolment by default. Do not use `--include-enrolment` unless a VCC operator has revoked the old credential and provided a fresh handoff. See the [setup and troubleshooting guide](troubleshooting/WAZUH_SETUP_AND_TROUBLESHOOTING_GUIDE.md#15-destructive-local-reset) for the exact procedure and deletion scope.
+Username is `admin`. Windows copies the locally generated password to the clipboard without printing it. Linux reports the protected local credential when appropriate; do not share terminal screenshots containing it.
 
 ## Repository structure
 
-Students should not execute the implementation files under `internal/` or `wazuh-stack/scripts/` during normal startup.
+Students should not execute implementation files under `internal/`, `tools/` or `wazuh-stack/scripts/` during normal startup/CLI use.
 
 ```text
-START-NEOLABS-SOC.cmd       physical Windows 10/11 entry point
-start-neolabs-soc.sh        Linux/Ubuntu/VPS entry point
-internal/windows/            Windows implementation helpers
-wazuh-stack/                 Wazuh configuration/runtime internals
-tools/                       NeoLabs client/Doctor internals
+START-NEOLABS-SOC.cmd       Windows physical-PC startup/repair
+start-neolabs-soc.sh        Linux/Ubuntu/VPS startup/repair
+neolabs.cmd                 Windows root NeoLabs CLI
+neolabs                     Linux root NeoLabs CLI
+internal/windows/           Windows implementation helpers
+wazuh-stack/                Wazuh configuration/runtime internals
+tools/                      underlying Python CLI implementation
 docs/ + publications/       learning material
-templates/                   evidence/report templates
+templates/                  evidence/report templates
 ```
 
-Low-level scripts remain in the repository because the launchers need them and mentors/CI may inspect them, but they are not competing student setup choices.
+Low-level scripts remain because the launchers/CLI and CI need them; they are not competing student entry points.
 
 ## Continue with Week 1
 
-Read [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md). Use the **NeoLabs — Operation Night Watch** view/dashboard when available and use **NeoLabs — Telemetry Health** or the launcher `doctor` action before interpreting missing/zero-result data.
+Read [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md). Use the **NeoLabs — Operation Night Watch** view/dashboard when available and use **NeoLabs — Telemetry Health** or `bash neolabs doctor` / `.\neolabs.cmd doctor` before interpreting missing/zero-result data.
 
 ## Security boundary
 

@@ -76,7 +76,7 @@ On a VPS:
 bash start-neolabs-soc.sh
 ```
 
-The Wazuh dashboard is published on every host interface. The launcher prints the login and `https://<host-ip>:8443` URLs for access from another device.
+The Wazuh dashboard remains loopback-only. The launcher prints an SSH port-forward example for headless remote access.
 
 ## Other Linux distributions
 
@@ -84,7 +84,7 @@ The root Bash launcher can operate when its prerequisites already exist. Automat
 
 ## Headless Linux server
 
-If the server has no desktop/browser, open one of the `https://<host-ip>:8443` URLs printed after READY from your own computer. Allow inbound TCP `8443` on the host or cloud firewall if the page does not load.
+Wazuh still binds the dashboard to loopback. If the server has no desktop/browser, the launcher prints a secure SSH local-port-forward example. Do not change the dashboard binding to `0.0.0.0` merely to make remote access easier.
 
 ## Unsupported configurations
 
