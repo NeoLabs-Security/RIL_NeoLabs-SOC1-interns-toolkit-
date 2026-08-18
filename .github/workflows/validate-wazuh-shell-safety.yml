@@ -74,12 +74,17 @@ jobs:
           if 'local seconds="$1" deadline\n' not in recovery or 'deadline=$((SECONDS + seconds))' not in recovery:
               raise SystemExit('Indexer wait helper must assign its deadline after the local seconds variable exists')
 
-          # /status is protected and returned HTTP 401 on the live 4.14.7 host.
-          # Use the /login readiness surface with curl -f; NeoLabs separately checks
+          # A ready Wazuh 4.14.7 /login surface can return 401 to an anonymous
+          # probe. Accept only known ready responses; NeoLabs separately checks
           # authenticated dashboard -> manager API connectivity after Docker health.
-          expected_health = '["CMD", "curl", "-k", "-s", "-f", "-o", "/dev/null", "https://localhost:5601/login"]'
-          if expected_health not in compose:
-              raise SystemExit('Dashboard healthcheck must require a successful Wazuh /login response')
+          expected_health_tokens = (
+              'https://localhost:5601/login',
+              "-w '%{http_code}'",
+              '200|302|401',
+              '*) exit 1',
+          )
+          if not all(token in compose for token in expected_health_tokens):
+              raise SystemExit('Dashboard healthcheck must accept only known ready Wazuh /login responses, including anonymous 401')
           if 'localhost:5601/status' in compose:
               raise SystemExit('Protected /status must not be used as the anonymous Docker healthcheck')
 
