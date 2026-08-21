@@ -286,7 +286,37 @@ Do not begin the practical merely because Docker containers started. Wait for:
 SOC WORKSTATION READY
 ```
 
-READY means a real synthetic event belonging to the **server-assigned pod** has been processed and is searchable in the local Wazuh indexer. Operation Night Watch is configured across the authorised Week 1 pods, so persistent missing assigned-pod telemetry is treated as a delivery/pipeline fault rather than an acceptable final state.
+READY means a real synthetic event belonging to the **server-assigned pod and current server-published scenario** has been processed and is searchable in the local Wazuh indexer. Historical alerts remain available, but cannot satisfy a later scenario's readiness check.
+
+## Weekly startup and safe updates
+
+After the one-time setup, normal weekly use is simply:
+
+```bash
+bash start-neolabs-soc.sh
+```
+
+The launcher performs a bounded update check. In a clean normal clone with
+`origin/main`, it uses a fast-forward-only update and restarts itself. It never
+uses a hard reset. If tracked or untracked student work exists, it leaves every
+file untouched, warns, and relies on the broker's client-version contract. A
+network failure is non-fatal unless the broker publishes a newer
+`minimum_client_version`. Managed installations without a Git remote use that
+same version contract and do not fail merely because `origin` is absent.
+
+Every login, status, connect, doctor and launcher start refreshes the existing
+Lab Access broker manifest. The observed scenario/release generation is stored
+in `~/.neolabs/soc/current-release.json`; this does not reset `.env`, Docker
+volumes, indexes, certificates, replay history, evidence or notes. A new
+generation changes the current verification scope, not historical data.
+
+If `student_ready` is false, the launcher reports that publication is pending
+and preserves the workstation. If current-scenario events have arrived but are
+not indexed, it reports a bounded wait/repair result rather than accepting an
+older scenario's alerts. Once ready, it prints the assigned pod, current
+scenario, a Last 24 hours range, and exact `data.pod_id` / `data.scenario_id`
+Threat Hunting filters. `--no-browser` retains this guidance and the dashboard
+URL without exposing broker or certificate secrets.
 
 ---
 

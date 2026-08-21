@@ -40,6 +40,9 @@ HOME_STATE = Path.home() / ".neolabs" / TRACK_DIR
 SESSION_FILE = HOME_STATE / "session.json"
 INSTALLATION_FILE = HOME_STATE / "installation-id"
 REPLAY_STATE_FILE = HOME_STATE / "replayed-objects.json"
+REPLAY_PENDING_FILE = HOME_STATE / "replay-pending.json"
+CURRENT_RELEASE_FILE = HOME_STATE / "current-release.json"
+CLIENT_VERSION_FILE = ROOT / "NEOLABS_SOC_CLIENT_VERSION"
 MAX_HTTP_BYTES = 25 * 1024 * 1024
 MAX_REPLAY_BYTES = 64 * 1024 * 1024
 MAX_REPLAY_EVENTS = 50_000
@@ -189,6 +192,45 @@ def save_runtime_manifest(manifest: dict[str, Any]) -> None:
     atomic_write(RUNTIME_MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
 
+def client_version() -> str:
+    try:
+        return CLIENT_VERSION_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "0.0.0"
+
+
+def version_tuple(value: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", value.strip())
+    if not match:
+        fail(f"server returned an invalid minimum_client_version: {value!r}")
+    return tuple(int(part) for part in match.groups())
+
+
+def record_current_release(manifest: dict[str, Any]) -> bool:
+    """Persist public release metadata only; never replace enrolment/replay state."""
+    previous: dict[str, Any] = {}
+    try:
+        loaded = json.loads(CURRENT_RELEASE_FILE.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            previous = loaded
+    except (OSError, json.JSONDecodeError):
+        pass
+    fields = ("scenario_id", "scenario_release", "release_generation", "release_id", "pod_id", "student_ready", "lab_state", "runtime_mode")
+    current = {key: manifest[key] for key in fields if key in manifest}
+    current["observed_at"] = utc_now()
+    changed = previous.get("release_generation") != current.get("release_generation")
+    atomic_write(CURRENT_RELEASE_FILE, json.dumps(current, indent=2, sort_keys=True) + "\n")
+    return changed
+
+
+def ensure_compatible(manifest: dict[str, Any]) -> None:
+    minimum = manifest.get("minimum_client_version")
+    if minimum is None:
+        return
+    if not isinstance(minimum, str) or version_tuple(client_version()) < version_tuple(minimum):
+        fail(f"this toolkit client ({client_version()}) is too old; server requires {minimum}. Preserve local work, then update from origin/main or ask NeoLabs support")
+
+
 def refresh(session: dict[str, Any]) -> dict[str, Any]:
     base_url = validate_base_url(str(session.get("base_url", "")))
     result = request_json(base_url, "/api/v1/lab-access/manifest", token=str(session["session_token"]))
@@ -198,7 +240,16 @@ def refresh(session: dict[str, Any]) -> dict[str, Any]:
         session["expires_at"] = result["expires_at"]
     atomic_write(SESSION_FILE, json.dumps(session, indent=2, sort_keys=True) + "\n")
     save_runtime_manifest(manifest)
+    ensure_compatible(manifest)
+    changed = record_current_release(manifest)
+    if changed:
+        print(f"[NeoLabs] New server release observed: generation={manifest.get('release_generation', 'not published')} scenario={manifest.get('scenario_id', 'not published')}")
     return manifest
+
+
+def student_is_ready(manifest: dict[str, Any]) -> bool:
+    # Absent means compatible with the pre-Pass-1 broker.
+    return manifest.get("student_ready", True) is not False
 
 
 def do_login(args: argparse.Namespace) -> None:
@@ -220,10 +271,15 @@ def do_login(args: argparse.Namespace) -> None:
         state["live_handoff"] = {"available": True, "live_base_url": base_url, "soc_enrolment": response["soc_enrolment"]}
     atomic_write(SESSION_FILE, json.dumps(state, indent=2, sort_keys=True) + "\n")
     save_runtime_manifest(manifest)
+    ensure_compatible(manifest)
+    record_current_release(manifest)
     print("✓ Authentication successful")
     print(f"✓ Assigned pod: {manifest['pod_id']}")
     print("✓ Track: SOC")
     print(f"✓ Lab state: {manifest.get('lab_state', 'LIVE')}")
+    print(f"✓ Scenario: {manifest.get('scenario_id') or 'not published'}")
+    if not student_is_ready(manifest):
+        print("[WAIT] Current scenario is deployed but student access has not been published yet.")
     print("Next: run `neolabs connect`.")
 
 
@@ -309,6 +365,30 @@ def save_replayed_keys(keys: set[str]) -> None:
     atomic_write(REPLAY_STATE_FILE, json.dumps(sorted(keys), indent=2) + "\n")
 
 
+def replay_pending() -> dict[str, str]:
+    try:
+        value = json.loads(REPLAY_PENDING_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return {str(key): str(event_id) for key, event_id in value.items() if isinstance(key, str) and isinstance(event_id, str)} if isinstance(value, dict) else {}
+
+
+def save_replay_pending(value: dict[str, str]) -> None:
+    atomic_write(REPLAY_PENDING_FILE, json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def verify_replay_indexed(stack: Path, manifest: dict[str, Any], event_id: str, wait: int = 60) -> bool:
+    scenario = str(manifest.get("scenario_id") or "")
+    if not scenario or not event_id:
+        return False
+    result = subprocess.run(
+        ["bash", "scripts/verify-telemetry-pipeline.sh", "--scenario-id", scenario, "--event-id", event_id, "--wait", str(wait)],
+        cwd=stack,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def decode_replay_pack(raw: bytes, manifest: dict[str, Any], object_key: str) -> str:
     try:
         with gzip.GzipFile(fileobj=io.BytesIO(raw), mode="rb") as zipped:
@@ -369,6 +449,7 @@ def replay_soc(session: dict[str, Any], manifest: dict[str, Any]) -> None:
     if not isinstance(packs, list):
         fail("replay gateway returned an invalid telemetry pack list")
     seen = replayed_keys()
+    pending = replay_pending()
     added_events = 0
     added_packs = 0
     for pack in packs:
@@ -378,13 +459,29 @@ def replay_soc(session: dict[str, Any], manifest: dict[str, Any]) -> None:
         url = pack.get("url")
         if not isinstance(key, str) or not isinstance(url, str) or key in seen:
             continue
+        if key in pending:
+            if verify_replay_indexed(stack, manifest, pending[key]):
+                seen.add(key)
+                pending.pop(key, None)
+                save_replayed_keys(seen)
+                save_replay_pending(pending)
+                added_packs += 1
+            continue
         ndjson = decode_replay_pack(download_bytes(url), manifest, key)
         if ndjson:
+            representative = str(json.loads(ndjson.splitlines()[0]).get("event_id") or "")
             append_to_wazuh(stack, ndjson)
             added_events += ndjson.count("\n")
-        seen.add(key)
-        save_replayed_keys(seen)
-        added_packs += 1
+            pending[key] = representative
+            save_replay_pending(pending)
+            if verify_replay_indexed(stack, manifest, representative):
+                seen.add(key)
+                pending.pop(key, None)
+                save_replayed_keys(seen)
+                save_replay_pending(pending)
+                added_packs += 1
+            else:
+                print(f"NOTICE: Replay pack {key} was delivered but remains pending until its current-scenario event is searchable.")
     print(f"✓ REPLAY mode: {added_packs} new telemetry pack(s), {added_events} event(s) appended for {manifest['pod_id']}.")
     if not packs:
         print("NOTICE: No telemetry replay packs are published yet for this pod/scenario.")
@@ -424,6 +521,9 @@ def do_evidence(_: argparse.Namespace) -> None:
 def do_connect(_: argparse.Namespace) -> None:
     session = read_session()
     manifest = refresh(session)
+    if not student_is_ready(manifest):
+        print("[WAIT] Current scenario is deployed but student access has not been published yet.")
+        return
     lab_state = str(manifest.get("lab_state") or "LIVE")
     if lab_state == "LIVE":
         connect_soc_live(session, manifest)
@@ -443,6 +543,11 @@ def do_status(_: argparse.Namespace) -> None:
     print(f"Track:    {manifest['track']}")
     print(f"Pod:      {manifest['pod_id']}")
     print(f"Scenario: {manifest.get('scenario_id') or 'not published'}")
+    print(f"Release:  {manifest.get('scenario_release') or 'not published'}")
+    print(f"Client:   {client_version()}")
+    print(f"Access:   {'READY' if student_is_ready(manifest) else 'PENDING'}")
+    if not student_is_ready(manifest):
+        print("[WAIT] Current scenario is deployed but student access has not been published yet.")
     print(f"Session:  expires {session.get('expires_at') or 'unknown'}")
 
 

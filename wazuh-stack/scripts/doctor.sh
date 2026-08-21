@@ -7,13 +7,14 @@ cd "${ROOT_DIR}"
 pod="${NEOLABS_DOCTOR_POD:-}"
 lab_state="${NEOLABS_DOCTOR_LAB_STATE:-unknown}"
 replay_packs="${NEOLABS_DOCTOR_REPLAY_PACKS:-unknown}"
+scenario="${NEOLABS_DOCTOR_SCENARIO:-}"
 failures=0
 
 pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1"; }
 fail_stage() { printf '[FAIL] %s\n' "$1"; failures=$((failures + 1)); }
 
-if [[ ! "${pod}" =~ ^pod-[0-9]{2}$ ]]; then
+if [[ ! "${pod}" =~ ^pod-[0-9]{2}$ || -z "${scenario}" ]]; then
   fail_stage '2/7 VCC telemetry surface — server-issued pod was not supplied to doctor.'
   exit 2
 fi
@@ -53,9 +54,9 @@ else
 fi
 
 # 3/7 — Raw event exists in the shared telemetry volume for this pod.
-raw_result="$(docker compose --env-file .env exec -T vcc.telemetry.collector python - "${pod}" <<'PY' 2>/dev/null || true
+raw_result="$(docker compose --env-file .env exec -T vcc.telemetry.collector python - "${pod}" "${scenario}" <<'PY' 2>/dev/null || true
 import json, pathlib, sys
-pod=sys.argv[1]
+pod,scenario=sys.argv[1:3]
 path=pathlib.Path('/data/vcc-events.ndjson')
 count=0
 latest=''
@@ -63,7 +64,7 @@ if path.is_file():
     for raw in path.read_text(encoding='utf-8', errors='replace').splitlines()[-50000:]:
         try: e=json.loads(raw)
         except Exception: continue
-        if e.get('synthetic') is True and e.get('pod_id') == pod:
+        if e.get('synthetic') is True and e.get('pod_id') == pod and e.get('scenario_id') == scenario:
             count += 1
             ts=str(e.get('event_time') or '')
             if ts > latest: latest=ts
@@ -73,7 +74,7 @@ PY
 raw_count="${raw_result%%|*}"
 raw_latest="${raw_result#*|}"
 if [[ "${raw_count}" =~ ^[0-9]+$ ]] && (( raw_count > 0 )); then
-  pass "3/7 Raw VCC event file — ${raw_count} assigned-pod synthetic event(s) present; newest source event_time=${raw_latest:-unknown}."
+  pass "3/7 Current telemetry delivery — ${raw_count} event(s) for pod=${pod} scenario=${scenario}; newest source event_time=${raw_latest:-unknown}."
 else
   if service_healthy vcc.telemetry.collector; then
     warn "3/7 Raw VCC event file — local collector is healthy, but no validated event for ${pod} has arrived yet."
@@ -104,14 +105,14 @@ if service_healthy wazuh.indexer; then
   cluster_status="$(printf '%s' "${cluster}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("status","unknown"))
 except Exception: print("unknown")')"
-  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
+  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"match_phrase\":{\"data.scenario_id\":\"${scenario}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
   indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"
   hits="$(printf '%s' "${indexed:-{}}" | python3 -c 'import json,sys
 try:
  d=json.load(sys.stdin); t=d.get("hits",{}).get("total",0); print(t.get("value",0) if isinstance(t,dict) else t)
 except Exception: print(0)')"
   if [[ "${cluster_status}" =~ ^(green|yellow)$ && "${hits}" =~ ^[0-9]+$ ]] && (( hits > 0 )); then
-    pass "6/7 Wazuh indexer — cluster=${cluster_status}; ${hits} NeoLabs alert(s) searchable for ${pod}."
+    pass "6/7 Wazuh indexer — cluster=${cluster_status}; ${hits} NeoLabs alert(s) searchable for pod=${pod} scenario=${scenario}."
   elif [[ "${cluster_status}" =~ ^(green|yellow)$ && "${raw_count:-0}" =~ ^[0-9]+$ ]] && (( ${raw_count:-0} == 0 )); then
     pass "6/7 Wazuh indexer — cluster=${cluster_status}; indexer is healthy while assigned-pod telemetry is still pending."
   else

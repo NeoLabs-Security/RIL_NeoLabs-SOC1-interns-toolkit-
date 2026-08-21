@@ -41,6 +41,9 @@ def do_doctor() -> int:
     lab_state = str(manifest.get("lab_state") or "LIVE")
     scenario = str(manifest.get("scenario_id") or "not published")
     print(f"[PASS] 1/7 VCC authentication — session accepted; pod={pod}; scenario={scenario}; state={lab_state}.")
+    if not core.student_is_ready(manifest):
+        print("[WAIT] 2/7 Current release — scenario is deployed but student access has not been published yet.")
+        return 0
 
     replay_packs = "unknown"
     if lab_state in {"REPLAY", "CLOUD_LIVE", "ENDPOINT_LIVE"}:
@@ -69,6 +72,7 @@ def do_doctor() -> int:
             "NEOLABS_DOCTOR_POD": pod,
             "NEOLABS_DOCTOR_LAB_STATE": lab_state,
             "NEOLABS_DOCTOR_REPLAY_PACKS": replay_packs,
+            "NEOLABS_DOCTOR_SCENARIO": scenario,
         }
     )
     try:
