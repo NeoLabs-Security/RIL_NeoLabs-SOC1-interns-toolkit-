@@ -48,6 +48,18 @@ done
 
 cd "$ROOT_DIR"
 
+if [[ "${NEOLABS_UPDATE_CHECKED:-0}" != 1 ]]; then
+  log 'Checking current NeoLabs release...'
+  update_rc=0
+  python3 tools/toolkit_update.py || update_rc=$?
+  export NEOLABS_UPDATE_CHECKED=1
+  if (( update_rc == 10 )); then
+    exec bash "$ROOT_DIR/start-neolabs-soc.sh" "$@"
+  elif (( update_rc != 0 )); then
+    warn 'Toolkit version check encountered an unexpected error; broker compatibility will still be enforced.'
+  fi
+fi
+
 if (( VALIDATE_ONLY )); then
   for path in internal/linux/Test-NeoLabsRuntime.sh internal/linux/Repair-NeoLabsRuntime.sh internal/common/Start-NeoLabsSOC.sh; do
     [[ -f "$path" ]] || fail "Required launcher component is missing: $path"

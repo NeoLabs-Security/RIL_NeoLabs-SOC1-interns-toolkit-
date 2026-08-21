@@ -20,6 +20,7 @@ This file tracks the authoritative student-facing material and operational tooli
 | Linux implementation | package/Docker/kernel/bootstrap/orchestration | Integrated into root Bash launcher; uses sudo only for OS-level work |
 | VCC Access Integration | server-assigned pod, LIVE/replay selection, mTLS live path, signed replay ingestion and revocation | Active programme path |
 | Telemetry-to-Dashboard Verification | real assigned-pod event must be searchable in `wazuh-alerts-*` before READY | Current and CI-contracted |
+| Current-release client contract | bounded safe fast-forward, broker compatibility, release-generation state, readiness and pod+scenario verification | Current; version 1.2.0, reviewed 2026-08-21 |
 | Night Watch Saved View | pod-scoped Week 1 view with identity/source/outcome/correlation/rule/event-time fields | Runtime-provisioned |
 | Telemetry Health Saved View | rule `100150` collection/parser/visibility troubleshooting view | Runtime-provisioned |
 | Freshness/Retention | 90-minute default freshness warning; 30-day local alert-index retention; 85%/92% disk warnings | Current defaults |
@@ -57,7 +58,7 @@ bash neolabs doctor
 
 Students no longer need to navigate into `tools/` for normal CLI use. The root wrappers preserve the supported `python3 -m tools.cli` module entrypoint.
 
-The first run prepares missing prerequisites and Wazuh configuration. Subsequent runs preserve/reuse the existing local Wazuh installation and credentials while reconnecting/verifying the current authorised SOC surface.
+The first run prepares missing prerequisites and Wazuh configuration. Subsequent runs safely check for toolkit updates and preserve/reuse the existing local Wazuh installation, history and credentials while refreshing and verifying the current server-authorised SOC release.
 
 ## Current programme state
 
@@ -76,4 +77,4 @@ CI covers Python/shell/XML/NDJSON/Compose checks, both startup launcher contract
 
 ## Release state
 
-The toolkit is active programme tooling. Students pull the latest checkout, run the platform root launcher, authenticate when prompted and do not start analysis until `SOC WORKSTATION READY` proves assigned-pod telemetry is searchable.
+The toolkit is active programme tooling. After initial setup, students run the platform root launcher; its safe update/version check removes the normal need for a manual weekly pull. Students do not start analysis until `SOC WORKSTATION READY` proves current assigned-pod/scenario telemetry is searchable.

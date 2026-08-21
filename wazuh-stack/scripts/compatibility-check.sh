@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The single-node training stack can run in a constrained Week 1 workstation with
+# The single-node training stack can run in a constrained SOC workstation with
 # 7 GiB visible to the Linux/WSL2 VM. Eight GiB remains the preferred floor and
 # 12 GiB is recommended for smoother indexing and dashboard use.
 HARD_MIN_MEMORY_GIB="${SOC_HARD_MIN_MEMORY_GIB:-7}"
@@ -85,7 +85,7 @@ if [[ -n "${memory_gib}" ]]; then
   if (( memory_gib < HARD_MIN_MEMORY_GIB )); then
     fail "Only ${memory_gib} GiB RAM detected; this training stack needs at least ${HARD_MIN_MEMORY_GIB} GiB visible to Linux/WSL2."
   elif (( memory_gib < PREFERRED_MEMORY_GIB )); then
-    warn "${memory_gib} GiB RAM detected. Week 1 may run, but ${PREFERRED_MEMORY_GIB} GiB is the preferred minimum; close other heavy applications before starting Wazuh."
+    warn "${memory_gib} GiB RAM detected. The SOC stack may run, but ${PREFERRED_MEMORY_GIB} GiB is the preferred minimum; close other heavy applications before starting Wazuh."
   elif (( memory_gib < RECOMMENDED_MEMORY_GIB )); then
     warn "${memory_gib} GiB RAM detected; ${RECOMMENDED_MEMORY_GIB} GiB or more is recommended for smoother Wazuh use."
   else

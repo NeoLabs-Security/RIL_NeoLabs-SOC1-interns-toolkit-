@@ -36,6 +36,19 @@ done
 [[ "$HOST_MODE" == "linux" || "$HOST_MODE" == "windows" ]] || fail '--host must be linux or windows'
 
 cd "$ROOT_DIR"
+if [[ "${NEOLABS_UPDATE_CHECKED:-0}" != 1 ]]; then
+  log 'Checking current NeoLabs release...'
+  update_rc=0
+  python3 tools/toolkit_update.py || update_rc=$?
+  export NEOLABS_UPDATE_CHECKED=1
+  if (( update_rc == 10 )); then
+    refreshed_args=("$ACTION" --host "$HOST_MODE")
+    (( NO_BROWSER == 0 )) || refreshed_args+=(--no-browser)
+    exec bash internal/common/Start-NeoLabsSOC.sh "${refreshed_args[@]}"
+  elif (( update_rc != 0 )); then
+    warn 'Toolkit version check encountered an unexpected error; broker compatibility will still be enforced.'
+  fi
+fi
 for path in \
   tools/cli.py tools/__init__.py \
   wazuh-stack/scripts/compatibility-check.sh \
@@ -143,7 +156,7 @@ fi
 printf 'Username:   admin\n'
 if [[ "$HOST_MODE" == linux && -t 1 && "${NEOLABS_HIDE_DASHBOARD_PASSWORD:-0}" != 1 ]]; then
   # The dashboard login is available as soon as Wazuh and its API are healthy.
-  # Final SOC WORKSTATION READY is still gated on assigned-pod Night Watch telemetry.
+  # Final SOC WORKSTATION READY is gated on current assigned-pod/scenario telemetry.
   # Never write this value to repository/runtime diagnostic files.
   printf 'Password:   %s\n' "${WAZUH_INDEXER_PASSWORD}"
   printf '             (private local credential; do not post/share terminal screenshots containing it)\n'
@@ -155,26 +168,43 @@ printf '[OK] Manager, indexer, dashboard, collector and dashboard API connector 
 log 'Confirming current pod/scenario status...'
 python3 -m tools.cli status || fail 'Final NeoLabs status check failed.'
 
-# Operation Night Watch is deployed with traffic enabled for pod-01 through
-# pod-05. A connected SOC intern therefore must receive telemetry for the
-# server-assigned pod. Give normal delivery/indexing a bounded window, then
+manifest_fields="$(python3 - runtime/access-manifest.json <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1], encoding='utf-8'))
+print(d.get('pod_id',''))
+print(d.get('scenario_id',''))
+print('false' if d.get('student_ready', True) is False else 'true')
+PY
+)"
+assigned_pod="$(sed -n '1p' <<<"$manifest_fields")"
+current_scenario="$(sed -n '2p' <<<"$manifest_fields")"
+student_ready="$(sed -n '3p' <<<"$manifest_fields")"
+if [[ "$student_ready" == false ]]; then
+  printf '[WAIT] Current scenario is deployed but student access has not been published yet. Existing Wazuh history and credentials were preserved.\n'
+  exit 0
+fi
+[[ -n "$assigned_pod" && -n "$current_scenario" ]] || fail 'Broker has not published an assigned pod and current scenario yet.'
+
+# A connected SOC intern must receive telemetry for the server-assigned pod and
+# server-published scenario. Give normal delivery/indexing a bounded window, then
 # perform one safe local/replay repair; never declare final READY without proof.
-log 'Waiting for assigned-pod Operation Night Watch telemetry to become searchable in Wazuh...'
+log "Waiting for current-scenario telemetry (${current_scenario}) to become searchable in Wazuh..."
 telemetry_rc=0
-bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 180 || telemetry_rc=$?
+bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --scenario-id "$current_scenario" --wait 180 || telemetry_rc=$?
 if (( telemetry_rc == 2 )); then
   fail 'NeoLabs custom rules failed the live Wazuh rule-engine verification.'
 elif (( telemetry_rc != 0 )); then
-  warn 'Night Watch telemetry is expected for this pod but is not searchable yet. Attempting one bounded telemetry repair/re-sync.'
-  bash wazuh-stack/scripts/repair-telemetry-pipeline.sh || fail 'The assigned-pod Night Watch telemetry path could not be repaired safely.'
-  bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --wait 120 || fail 'Assigned-pod Night Watch telemetry is still not searchable after repair.'
+  warn 'Current-scenario telemetry is expected for this pod but is not searchable yet. Attempting one bounded telemetry repair/re-sync.'
+  bash wazuh-stack/scripts/repair-telemetry-pipeline.sh || fail 'The assigned-pod current-scenario telemetry path could not be repaired safely.'
+  bash wazuh-stack/scripts/verify-telemetry-pipeline.sh --scenario-id "$current_scenario" --wait 120 || fail 'Assigned-pod current-scenario telemetry is still not searchable after repair.'
 fi
 
 log 'Checking latest-event freshness...'
 bash wazuh-stack/scripts/telemetry-freshness.sh || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
 
 printf '\n\033[32mSOC WORKSTATION READY\033[0m\n'
-printf 'Verified: assigned-pod Operation Night Watch telemetry is indexed and searchable in Wazuh.\n'
+printf 'Verified: assigned-pod current-scenario telemetry is indexed and searchable in Wazuh.\n'
+printf '\nAssigned pod:\n%s\n\nCurrent scenario:\n%s\n\nRecommended time range:\nLast 24 hours\n\nSuggested Threat Hunting filters:\ndata.pod_id = %s\nAND\ndata.scenario_id = %s\n' "$assigned_pod" "$current_scenario" "$assigned_pod" "$current_scenario"
 if [[ "$HOST_MODE" == windows ]]; then
   printf 'Windows launcher will copy the private dashboard password and open the browser.\n'
 else

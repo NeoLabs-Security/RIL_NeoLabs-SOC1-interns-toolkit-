@@ -51,6 +51,6 @@ if ! bash ./scripts/configure-index-retention.sh; then
   printf '[WARN] Local retention policy provisioning did not complete; Wazuh remains available. Run neolabs doctor for details.\n' >&2
 fi
 if ! bash ./scripts/provision-dashboard-objects.sh; then
-  printf '[WARN] Night Watch saved-object provisioning did not complete; core Threat Hunting remains available.\n' >&2
+  printf '[WARN] Optional scenario saved-object provisioning did not complete; core Threat Hunting remains available.\n' >&2
 fi
 bash ./scripts/disk-warning.sh || true
