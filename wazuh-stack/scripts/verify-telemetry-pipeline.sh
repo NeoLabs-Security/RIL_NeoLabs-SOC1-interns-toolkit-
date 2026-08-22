@@ -82,7 +82,9 @@ for raw in path.read_text(encoding='utf-8', errors='replace').splitlines()[-5000
     try: event=json.loads(raw)
     except Exception: continue
     if event.get('synthetic') is not True or event.get('pod_id') != pod: continue
-    if scenario and event.get('scenario_id') not in (scenario, None, ''): continue
+    payload=event.get('payload') if isinstance(event.get('payload'),dict) else {}
+    event_scenario=event.get('scenario_id') or payload.get('scenario_id')
+    if scenario and event_scenario not in (scenario, None, ''): continue
     if event_id and event.get('event_id') != event_id: continue
     raise SystemExit(0)
 raise SystemExit(1)
@@ -91,7 +93,7 @@ PY
 
 rules_are_loaded() {
   local pod="$1" output
-  output="$(printf '%s\n' "{\"schema_version\":\"1.0\",\"event_id\":\"pipeline-probe\",\"event_time\":\"2026-01-01T00:00:00Z\",\"pod_id\":\"${pod}\",\"event_type\":\"authentication\",\"synthetic\":true,\"outcome\":\"success\",\"user\":\"pipeline-probe\",\"source_ip\":\"127.0.0.1\"}" \
+  output="$(printf '%s\n' "{\"schema_version\":\"1.0\",\"event_id\":\"pipeline-probe\",\"event_time\":\"2026-01-01T00:00:00Z\",\"pod_id\":\"${pod}\",\"scenario_id\":\"pipeline-probe\",\"event_type\":\"authentication.login\",\"event_category\":\"authentication\",\"event_action\":\"login\",\"synthetic\":true,\"outcome\":\"success\",\"synthetic_user_id\":\"pipeline-probe\",\"source_ip\":\"127.0.0.1\"}" \
     | docker compose --env-file .env exec -T wazuh.manager /var/ossec/bin/wazuh-logtest 2>&1 || true)"
   grep -Eq "id: '100120'|Rule id: 100120|100120" <<<"${output}"
 }
@@ -106,7 +108,12 @@ filters=[
     {'terms': {'rule.id': ['100100','100110','100111','100112','100120','100121','100130','100140','100150']}},
 ]
 if scenario:
-    filters.append({'match_phrase': {'data.scenario_id': scenario}})
+    # Older replay archives wrap the canonical VCC event in `payload`; LIVE events
+    # and newer normalized events carry scenario_id at the top level. Accept both.
+    filters.append({'bool': {'should': [
+        {'match_phrase': {'data.scenario_id': scenario}},
+        {'match_phrase': {'data.payload.scenario_id': scenario}},
+    ], 'minimum_should_match': 1}})
 if event_id:
     filters.append({'match_phrase': {'data.event_id': event_id}})
 print(json.dumps({'size':0,'track_total_hits':True,'query':{'bool':{'filter':filters}}}, separators=(',',':')))
