@@ -1,0 +1,34 @@
+name: Validate SOC authentication UX
+
+on:
+  pull_request:
+    paths:
+      - 'tools/cli.py'
+      - 'tools/test_cli_auth.py'
+      - '.github/workflows/validate-auth-ux.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/cli.py'
+      - 'tools/test_cli_auth.py'
+      - '.github/workflows/validate-auth-ux.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-auth-ux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Python syntax
+        run: python3 -m py_compile tools/cli.py tools/test_cli_auth.py
+      - name: Test hidden Access Code prompt and stale-session recovery
+        run: python3 tools/test_cli_auth.py
+      - name: Verify normal CLI help still works
+        run: |
+          python3 -m tools.cli --help >/dev/null
+          python3 tools/cli.py --help >/dev/null

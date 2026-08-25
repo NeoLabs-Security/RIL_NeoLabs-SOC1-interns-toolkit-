@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,42 @@ if __package__ in {None, ""}:
         sys.path.insert(0, repository_root)
 
 from tools import neolabs as core
+
+ACCESS_CODE_RE = re.compile(r"^[A-Za-z0-9._-]{12,128}$")
+_SYSTEM_GETPASS = core.getpass.getpass
+
+
+def _prompt_access_code(prompt: str = "NeoLabs Access Code: ") -> str:
+    """Read a private Access Code without echo and tolerate a missed paste."""
+    for attempt in range(1, 4):
+        try:
+            value = _SYSTEM_GETPASS(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            raise SystemExit("ERROR: Access Code entry was cancelled; run `neolabs login` again")
+        if not value:
+            if attempt < 3:
+                print("No Access Code was detected. Paste it at the hidden prompt and press Enter.", file=sys.stderr)
+                continue
+            break
+        if ACCESS_CODE_RE.fullmatch(value):
+            return value
+        if attempt < 3:
+            print("That entry does not match the NeoLabs Access Code format. Paste the code exactly, with no spaces.", file=sys.stderr)
+    raise SystemExit("ERROR: could not read a valid NeoLabs Access Code after 3 attempts")
+
+
+def _clear_rejected_session() -> None:
+    for path in (core.SESSION_FILE, core.RUNTIME_MANIFEST):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+
+def _is_rejected_session(exc: BaseException) -> bool:
+    return "authentication or pod/track authorization was rejected" in str(exc)
 
 
 def _doctor_help() -> None:
@@ -34,7 +71,11 @@ def do_doctor() -> int:
         session = core.read_session()
         manifest = core.refresh(session)
     except SystemExit as exc:
-        print(f"[FAIL] 1/7 VCC authentication — {exc}", file=sys.stderr)
+        if _is_rejected_session(exc):
+            _clear_rejected_session()
+            print("[FAIL] 1/7 VCC authentication — saved session was rejected; run `neolabs login` again.", file=sys.stderr)
+        else:
+            print(f"[FAIL] 1/7 VCC authentication — {exc}", file=sys.stderr)
         return 1
 
     pod = str(manifest.get("pod_id") or "")
@@ -83,6 +124,22 @@ def do_doctor() -> int:
     return int(result.returncode)
 
 
+def _run_core(args: list[str]) -> int:
+    original_getpass = core.getpass.getpass
+    if args and args[0] == "login":
+        core.getpass.getpass = _prompt_access_code
+    try:
+        return core.main()
+    except SystemExit as exc:
+        if args and args[0] != "login" and _is_rejected_session(exc):
+            _clear_rejected_session()
+            print("ERROR: saved NeoLabs session is no longer valid; run `neolabs login` again", file=sys.stderr)
+            return 2
+        raise
+    finally:
+        core.getpass.getpass = original_getpass
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] == "doctor":
@@ -104,7 +161,7 @@ def main() -> int:
         print(help_text, end="" if help_text.endswith("\n") else "\n")
         return 0
 
-    return core.main()
+    return _run_core(args)
 
 
 if __name__ == "__main__":
