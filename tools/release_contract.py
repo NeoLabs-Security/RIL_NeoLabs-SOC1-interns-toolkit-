@@ -4,6 +4,7 @@ from typing import Any
 
 PROTOCOL_VERSION = "2.0"
 TRACKS = {"SOC", "PENTEST", "SUPPORT"}
+RESOURCE_TYPES = {"SOC": "soc_enrolment.v1", "PENTEST": "pentest_targets.v1", "SUPPORT": "support_ticket_queue.v1"}
 
 def validate_manifest(manifest: dict[str, Any], expected_track: str) -> dict[str, Any]:
     required = ("deployment_id", "deployment_channel", "scenario_id", "scenario_release",
@@ -22,6 +23,8 @@ def validate_manifest(manifest: dict[str, Any], expected_track: str) -> dict[str
         raise ValueError("manifest release generation is invalid")
     if not isinstance(manifest["resources"], dict):
         raise ValueError("manifest resources are invalid")
+    if not compatible_resource(manifest["resources"], RESOURCE_TYPES[expected_track]):
+        raise ValueError("manifest resource contract is unsupported")
     return manifest
 
 def generation_changed(previous: dict[str, Any] | None, current: dict[str, Any]) -> bool:
