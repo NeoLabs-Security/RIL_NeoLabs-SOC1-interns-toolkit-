@@ -28,6 +28,10 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+try:
+    from .release_contract import validate_manifest
+except ImportError:
+    from release_contract import validate_manifest
 
 TRACK = "SOC"
 TRACK_DIR = "soc"
@@ -184,7 +188,10 @@ def manifest_from(value: dict[str, Any]) -> dict[str, Any]:
     resources = manifest.get("resources")
     if not isinstance(resources, dict):
         fail("server returned an invalid resource manifest")
-    return manifest
+    try:
+        return validate_manifest(manifest, TRACK)
+    except ValueError as exc:
+        fail(str(exc))
 
 
 def save_runtime_manifest(manifest: dict[str, Any]) -> None:
@@ -249,7 +256,7 @@ def refresh(session: dict[str, Any]) -> dict[str, Any]:
 
 def student_is_ready(manifest: dict[str, Any]) -> bool:
     # Absent means compatible with the pre-Pass-1 broker.
-    return manifest.get("student_ready", True) is not False
+    return manifest.get("student_ready") is True and manifest.get("lab_state") == "STUDENT_READY"
 
 
 def do_login(args: argparse.Namespace) -> None:
