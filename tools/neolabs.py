@@ -28,6 +28,12 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+try:
+    from .release_contract import generation_changed, validate_manifest
+    from .discovery import resolve_gateway
+except ImportError:
+    from release_contract import generation_changed, validate_manifest
+    from discovery import resolve_gateway
 
 TRACK = "SOC"
 TRACK_DIR = "soc"
@@ -184,7 +190,10 @@ def manifest_from(value: dict[str, Any]) -> dict[str, Any]:
     resources = manifest.get("resources")
     if not isinstance(resources, dict):
         fail("server returned an invalid resource manifest")
-    return manifest
+    try:
+        return validate_manifest(manifest, TRACK)
+    except ValueError as exc:
+        fail(str(exc))
 
 
 def save_runtime_manifest(manifest: dict[str, Any]) -> None:
@@ -232,9 +241,19 @@ def ensure_compatible(manifest: dict[str, Any]) -> None:
 
 
 def refresh(session: dict[str, Any]) -> dict[str, Any]:
-    base_url = validate_base_url(str(session.get("base_url", "")))
+    previous_manifest = session.get("manifest") if isinstance(session.get("manifest"), dict) else None
+    try:
+        base_url, discovery_url = resolve_gateway(str(session.get("base_url", "")), HOME_STATE, str(session.get("deployment_channel", "ril-current")), session.get("discovery_url"))
+    except ValueError as exc:
+        fail(str(exc))
+    base_url = validate_base_url(base_url)
+    session["base_url"] = base_url
+    if discovery_url: session["discovery_url"] = discovery_url
     result = request_json(base_url, "/api/v1/lab-access/manifest", token=str(session["session_token"]))
     manifest = manifest_from(result)
+    if generation_changed(previous_manifest, manifest):
+        RUNTIME_MANIFEST.unlink(missing_ok=True)
+        REPLAY_PENDING_FILE.unlink(missing_ok=True)
     session["manifest"] = manifest
     if isinstance(result.get("expires_at"), str):
         session["expires_at"] = result["expires_at"]
@@ -243,17 +262,20 @@ def refresh(session: dict[str, Any]) -> dict[str, Any]:
     ensure_compatible(manifest)
     changed = record_current_release(manifest)
     if changed:
-        print(f"[NeoLabs] New server release observed: generation={manifest.get('release_generation', 'not published')} scenario={manifest.get('scenario_id', 'not published')}")
+        print(f"[NeoLabs] New server release observed; generation-sensitive caches were invalidated: generation={manifest.get('release_generation', 'not published')} scenario={manifest.get('scenario_id', 'not published')}")
     return manifest
 
 
 def student_is_ready(manifest: dict[str, Any]) -> bool:
     # Absent means compatible with the pre-Pass-1 broker.
-    return manifest.get("student_ready", True) is not False
+    return manifest.get("student_ready") is True and manifest.get("lab_state") == "STUDENT_READY"
 
 
 def do_login(args: argparse.Namespace) -> None:
-    base_url = validate_base_url(args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", ""))
+    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "")
+    try: base_url, discovery_url = resolve_gateway(configured, HOME_STATE)
+    except ValueError as exc: fail(str(exc))
+    base_url = validate_base_url(base_url)
     pod = normalize_pod(args.pod or input("Pod number: "))
     access_code = getpass.getpass("NeoLabs Access Code: ").strip()
     if len(access_code) < 12 or any(ch.isspace() for ch in access_code):
@@ -263,7 +285,7 @@ def do_login(args: argparse.Namespace) -> None:
     if not isinstance(token, str) or not token:
         fail("server did not return a lab session")
     manifest = manifest_from(response)
-    state: dict[str, Any] = {"base_url": base_url, "session_token": token, "expires_at": response.get("expires_at"), "manifest": manifest}
+    state: dict[str, Any] = {"base_url": base_url, "discovery_url": discovery_url, "deployment_channel": manifest["deployment_channel"], "session_token": token, "expires_at": response.get("expires_at"), "manifest": manifest}
     if isinstance(response.get("live_handoff"), dict):
         state["live_handoff"] = response["live_handoff"]
     elif isinstance(response.get("soc_enrolment"), dict):

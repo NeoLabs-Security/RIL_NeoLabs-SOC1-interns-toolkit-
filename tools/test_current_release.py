@@ -13,7 +13,7 @@ from tools import toolkit_update
 
 class ReleaseContractTests(unittest.TestCase):
     def manifest(self, **extra):
-        value = {"track": "SOC", "pod_id": "pod-01", "resources": {}, "scenario_id": "w02-ghost-login", "release_generation": 2}
+        value = {"protocol_version":"2.0","deployment_id":"deployment-a","deployment_channel":"ril-current","track":"SOC","pod_id":"pod-01","resources":{"resource_type":"soc_enrolment.v1","schema_version":1},"scenario_id":"w02-ghost-login","scenario_release":"vulnerable","release_generation":"00000000-0000-4000-8000-000000000002","student_ready":True,"lab_state":"STUDENT_READY","runtime_mode":"LIVE_REQUIRED","assignment_id":"assignment-a"}
         value.update(extra)
         return value
 
@@ -25,13 +25,14 @@ class ReleaseContractTests(unittest.TestCase):
             with mock.patch.object(neolabs, "CURRENT_RELEASE_FILE", state):
                 self.assertTrue(neolabs.record_current_release(self.manifest()))
                 self.assertFalse(neolabs.record_current_release(self.manifest()))
-                self.assertTrue(neolabs.record_current_release(self.manifest(release_generation=3)))
+                self.assertTrue(neolabs.record_current_release(self.manifest(release_generation="00000000-0000-4000-8000-000000000003")))
             self.assertEqual(evidence.read_text(encoding="utf-8"), "historical")
             saved = json.loads(state.read_text(encoding="utf-8"))
             self.assertEqual(saved["scenario_id"], "w02-ghost-login")
 
-    def test_readiness_defaults_compatible_and_honours_false(self):
-        self.assertTrue(neolabs.student_is_ready(self.manifest()))
+    def test_readiness_fails_closed_and_honours_false(self):
+        missing=self.manifest();missing.pop("student_ready")
+        self.assertFalse(neolabs.student_is_ready(missing))
         self.assertTrue(neolabs.student_is_ready(self.manifest(student_ready=True)))
         self.assertFalse(neolabs.student_is_ready(self.manifest(student_ready=False)))
 
