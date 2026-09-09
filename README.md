@@ -158,6 +158,22 @@ The wrapper runs:
 python3 -m tools.cli
 ```
 
+## Temporary Offline Fallback exercise
+
+NeoLabs may issue a separate HTTPS URL and an offline-only Access Code when the
+central VCC runtime is intentionally paused. This is opt-in and does not replace
+the normal VCC configuration. Use only the URL supplied by the mentor:
+
+```bash
+bash neolabs login --base-url https://API_ID.execute-api.REGION.amazonaws.com
+bash neolabs connect
+```
+
+The client validates the normal protocol-v2 manifest, downloads only the
+synthetic telemetry assigned to the authenticated pod, and replays it into the
+local Wazuh stack. Run `bash neolabs disconnect` when the temporary exercise is
+complete; a later login without `--base-url` returns to normal VCC discovery.
+
 from the correct repository root, preventing the import-path errors caused by launching the low-level Python files from inside `tools/`.
 
 ### What the Linux launcher does
