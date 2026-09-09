@@ -168,6 +168,24 @@ On later runs it detects the existing Wazuh installation/configuration and reuse
 
 ---
 
+## Temporary Offline Fallback exercise
+
+NeoLabs may issue a separate HTTPS URL and an offline-only Access Code when the
+central VCC runtime is intentionally paused. This is opt-in and does not replace
+the normal VCC configuration. Use only the URL supplied by the mentor:
+
+```bash
+bash neolabs login --base-url https://API_ID.execute-api.REGION.amazonaws.com
+bash neolabs connect
+```
+
+The client validates the normal protocol-v2 manifest, downloads only the
+synthetic telemetry assigned to the authenticated pod, and replays it into the
+local Wazuh stack. Run `bash neolabs disconnect` when the temporary exercise is
+complete; a later login without `--base-url` returns to normal VCC discovery.
+
+---
+
 # VPS / remote server policy
 
 SOC interns using a VPS or remote server must use **Ubuntu or Debian Linux**.

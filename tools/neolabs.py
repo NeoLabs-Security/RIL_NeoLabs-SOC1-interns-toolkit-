@@ -546,6 +546,11 @@ def do_connect(_: argparse.Namespace) -> None:
     if not student_is_ready(manifest):
         print("[WAIT] Current scenario is deployed but student access has not been published yet.")
         return
+    # Protocol v2 keeps readiness in lab_state. Offline delivery is selected by
+    # runtime_mode so the fallback never changes normal VCC discovery/defaults.
+    if manifest.get("runtime_mode") == "offline-fallback":
+        replay_soc(session, manifest)
+        return
     lab_state = str(manifest.get("lab_state") or "LIVE")
     if lab_state == "LIVE":
         connect_soc_live(session, manifest)
