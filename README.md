@@ -158,6 +158,16 @@ The wrapper runs:
 python3 -m tools.cli
 ```
 
+from the correct repository root, preventing the import-path errors caused by launching the low-level Python files from inside `tools/`.
+
+### What the Linux launcher does
+
+On Ubuntu/Debian first run it can install required base packages, Docker Engine, Docker Compose v2, configure `vm.max_map_count`, generate the private local Wazuh configuration, prepare Wazuh 4.14.7, authenticate the intern, connect authorised VCC telemetry, start Wazuh and verify assigned-pod telemetry is searchable.
+
+On later runs it detects the existing Wazuh installation/configuration and reuses it instead of reinstalling or deleting data.
+
+---
+
 ## Temporary Offline Fallback exercise
 
 NeoLabs may issue a separate HTTPS URL and an offline-only Access Code when the
@@ -173,14 +183,6 @@ The client validates the normal protocol-v2 manifest, downloads only the
 synthetic telemetry assigned to the authenticated pod, and replays it into the
 local Wazuh stack. Run `bash neolabs disconnect` when the temporary exercise is
 complete; a later login without `--base-url` returns to normal VCC discovery.
-
-from the correct repository root, preventing the import-path errors caused by launching the low-level Python files from inside `tools/`.
-
-### What the Linux launcher does
-
-On Ubuntu/Debian first run it can install required base packages, Docker Engine, Docker Compose v2, configure `vm.max_map_count`, generate the private local Wazuh configuration, prepare Wazuh 4.14.7, authenticate the intern, connect authorised VCC telemetry, start Wazuh and verify assigned-pod telemetry is searchable.
-
-On later runs it detects the existing Wazuh installation/configuration and reuses it instead of reinstalling or deleting data.
 
 ---
 
