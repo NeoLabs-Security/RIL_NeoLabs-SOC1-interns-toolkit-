@@ -2,12 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT_DIR"
 
 if ! command -v python3 >/dev/null 2>&1; then
   printf 'ERROR: python3 is required for the NeoLabs CLI. Run `bash start-neolabs-soc.sh` first so the supported runtime can be prepared.\n' >&2
   exit 2
 fi
+
+# Preserve the caller's directory for relative local evidence paths.
+if [[ "${1:-}" == "offline" && ( "${2:-}" == "analyze" || "${2:-}" == "import" ) ]]; then
+  exec python3 "$ROOT_DIR/tools/cli.py" "$@"
+fi
+
+cd "$ROOT_DIR"
 
 # The root CLI is also a supported stack-entry path (`bash neolabs connect`).
 # Propagate the same host profile used by the full launcher so Wazuh dashboard

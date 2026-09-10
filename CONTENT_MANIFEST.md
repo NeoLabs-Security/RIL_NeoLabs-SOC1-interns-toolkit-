@@ -4,6 +4,8 @@ This file tracks the authoritative student-facing material and operational tooli
 
 | Material | Current scope | Repository/programme status |
 |---|---|---|
+| Local Wazuh telemetry import | Authenticated local NDJSON ingestion, pending/verified ledger, representative search verification; Windows/WSL and Linux | Current; reviewed 2026-09-10 |
+| Local telemetry analysis | `docs/local-telemetry-analysis.md`; bounded read-only NDJSON/gzip inspection and validated fallback download without Wazuh | Current; version 1, reviewed 2026-09-10 |
 | Log Literacy and SIEM Foundations | log purpose, event fields, SIEM pipelines, normalisation, data quality and investigation method | Current |
 | SecOps Foundations | eight beginner-to-intermediate modules from SOC fundamentals through reporting/capstone | Current |
 | Wazuh SOC L1 Handbook | Wazuh 4.14.7 architecture, NeoLabs deployment, health, isolation, recovery and troubleshooting | Current |
