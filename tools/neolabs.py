@@ -611,9 +611,50 @@ def do_disconnect(_: argparse.Namespace) -> None:
     print("✓ Local NeoLabs session disconnected. Long-lived SOC certificate and replay history, if present, were not deleted.")
 
 
+def do_offline_download(_: argparse.Namespace) -> None:
+    session = read_session()
+    manifest = refresh(session)
+    if not student_is_ready(manifest) or manifest.get("runtime_mode") != "offline-fallback":
+        fail("offline download requires a ready Offline Fallback assignment")
+    response = request_json(validate_base_url(str(session["base_url"])), "/api/v1/lab-access/replay", token=str(session["session_token"]))
+    packs = response.get("telemetry_packs")
+    if not isinstance(packs, list) or not packs:
+        fail("no telemetry packs are published for this assignment")
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    for pack in packs:
+        if not isinstance(pack, dict) or not isinstance(pack.get("key"), str) or not isinstance(pack.get("url"), str):
+            fail("invalid telemetry pack metadata")
+        ndjson = decode_replay_pack(download_bytes(pack["url"]), manifest, pack["key"])
+        destination = evidence_local_path(pack["key"]).with_suffix(".ndjson")
+        if destination.exists():
+            if destination.is_file():
+                print(f"Already downloaded (left unchanged): {destination}")
+                continue
+            fail("telemetry destination is not a regular file")
+        with destination.open("x", encoding="utf-8") as output:
+            os.chmod(destination, 0o600)
+            output.write(ndjson)
+        print(f"Saved validated telemetry: {destination}")
+    print("Use: neolabs offline analyze --file <saved-path>. No Wazuh services were started.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="NeoLabs SOC internship pod access client")
     sub = parser.add_subparsers(dest="command", required=True)
+    from tools.local_telemetry import analyze
+    offline = sub.add_parser("offline", help="download or inspect local telemetry without Wazuh")
+    offline_sub = offline.add_subparsers(dest="offline_command", required=True)
+    download = offline_sub.add_parser("download", help="save assigned fallback telemetry (requires login/internet)")
+    download.set_defaults(func=do_offline_download)
+    from tools.local_import import run as import_local
+    ingest = offline_sub.add_parser("import", help="validate and ingest local telemetry into Wazuh (requires authenticated fallback session)")
+    ingest.add_argument("--file", required=True)
+    ingest.set_defaults(func=import_local)
+    local = offline_sub.add_parser("analyze", help="read local NDJSON or NDJSON.gz without login/internet")
+    local.add_argument("--file", required=True)
+    local.add_argument("--contains", default="", help="case-insensitive literal text filter")
+    local.add_argument("--limit", type=int, default=50)
+    local.set_defaults(func=analyze)
     login = sub.add_parser("login", help="authenticate with your pod number and private NeoLabs Access Code")
     login.add_argument("--pod")
     login.add_argument("--base-url", default=None)
