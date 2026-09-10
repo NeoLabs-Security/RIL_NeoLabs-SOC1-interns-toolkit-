@@ -7,10 +7,31 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from tools import neolabs as core
-from tools.local_import import run
+from tools.local_import import run, normalize_event
 
 
 class ImportTests(unittest.TestCase):
+    def test_legacy_normalization_preserves_source(self):
+        source = {'event_type': 'authentication', 'result': 'failure', 'user': 'fixture', 'source_ip': '192.0.2.1'}
+        original = dict(source)
+        event = normalize_event(source)
+        self.assertEqual(source, original)
+        self.assertEqual(event['schema_version'], '1.0')
+        self.assertEqual(event['outcome'], 'failure')
+        self.assertEqual(event['result'], 'failure')
+
+    def test_conflicting_legacy_fields_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_event({'event_type': 'authentication', 'result': 'failure', 'outcome': 'success', 'user': 'fixture', 'source_ip': '192.0.2.1'})
+
+    def test_unknown_format_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_event({'event_type': 'unknown'})
+
+    def test_versioned_event_not_reinterpreted(self):
+        source = {'schema_version': '2.0', 'result': 'failure'}
+        self.assertEqual(normalize_event(source), source)
+
     def exercise(self, wrong=False, indexed=True):
         with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as context:
             root = Path(directory)
