@@ -4,6 +4,23 @@ import json
 from tools.local_telemetry import load_events
 
 
+def normalize_event(source):
+    """Adapt the published unversioned authentication format without editing evidence."""
+    event = dict(source)
+    if 'schema_version' not in event:
+        if (event.get('event_type') != 'authentication' or
+                event.get('result') not in ('success', 'failure') or
+                not isinstance(event.get('user'), str) or not event['user'] or
+                not isinstance(event.get('source_ip'), str) or not event['source_ip']):
+            raise ValueError('unsupported unversioned telemetry format')
+        if 'outcome' in event and event['outcome'] != event['result']:
+            raise ValueError('conflicting result/outcome fields')
+        event['schema_version'] = '1.0'
+        event['outcome'] = event['result']
+        event['neolabs_normalization'] = 'legacy-authentication-v1'
+    return event
+
+
 def run(args):
     from tools import neolabs as core
     # Authorization comes from the gateway, never from a user-selected pod.
@@ -11,7 +28,7 @@ def run(args):
     if not core.student_is_ready(manifest) or manifest.get('runtime_mode') != 'offline-fallback':
         core.fail('import requires a ready Offline Fallback assignment')
     try:
-        events = load_events(args.file)
+        events = [normalize_event(event) for event in load_events(args.file)]
     except (OSError, ValueError, EOFError) as exc:
         core.fail(str(exc))
     for event in events:
