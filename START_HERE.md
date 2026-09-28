@@ -118,6 +118,10 @@ Low-level scripts remain because the launchers/CLI and CI need them; they are no
 
 Read [`docs/week-01/operation-night-watch-launch-pack.md`](docs/week-01/operation-night-watch-launch-pack.md). Use the **NeoLabs — Operation Night Watch** view/dashboard when available and use **NeoLabs — Telemetry Health** or `bash neolabs doctor` / `.\neolabs.cmd doctor` before interpreting missing/zero-result data.
 
+## Week 3 red-versus-blue arena
+
+When the central assignment opens `w03-credential-storm`, Blue-team analysts start with [`arena/week-03/START_HERE.md`](arena/week-03/START_HERE.md). This temporary week has no pods: use only the dedicated arena hostname and the 15 synthetic account IDs issued by the facilitator. The SOC toolkit owns Wazuh detection, triage and the evidence handoff to IT Security Support; it does not grant AWS or server access.
+
 ## Security boundary
 
 Never commit/share the NeoLabs Access Code, session token, Wazuh password, certificates/private keys or signed private URLs. Scope is server-controlled. Stop and contact a mentor if another pod, real personal/production data, credentials/private keys, unexpected infrastructure access or service instability appears.

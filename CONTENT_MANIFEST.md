@@ -27,6 +27,7 @@ This file tracks the authoritative student-facing material and operational tooli
 | Telemetry Health Saved View | rule `100150` collection/parser/visibility troubleshooting view | Runtime-provisioned |
 | Freshness/Retention | 90-minute default freshness warning; 30-day local alert-index retention; 85%/92% disk warnings | Current defaults |
 | NeoLabs Publications | analyst handbook, Wazuh guide, template/lab packs and combined reference PDFs | Automated build on `main` |
+| Week 3 Credential Storm — Blue Detection Pack | no-pod arena contract, Wazuh query card, triage guide, evidence ledger and offline ledger validator | Staged; usable only when the central assignment opens `w03-credential-storm` |
 
 ## Current student startup
 

@@ -1,0 +1,40 @@
+schema: vcc.arena.contract.v1
+contract_version: 1.0.0
+scenario_id: w03-credential-storm
+scenario_title: Credential Storm Red vs Blue Arena
+deployment:
+  branch: arena/main
+  mode: dedicated-single-server
+  runtime: one-copied-pod
+  hostname: operator-supplied
+teams:
+  pods_enabled: false
+  names: [red, blue]
+  specialization_switching: allowed
+targets:
+  count: 15
+  account_id_pattern: '^syn-credential-storm-pod-01-(?:0[1-9]|1[0-5])$'
+  email_suffix: '@example.invalid'
+  real_users_allowed: false
+scoring:
+  points_per_account: 1
+  red_claim:
+    - successful server login event before containment
+    - facilitator-accepted screenshot with account, URL and UTC time
+  blue_claim:
+    - observed failed attempt
+    - account contained before successful login
+  unsupported_claim: unclaimed
+evidence:
+  timestamps: UTC
+  screenshot_hash: sha256
+  secrets_in_submissions: prohibited
+  raw_tokens_in_submissions: prohibited
+boundaries:
+  allowed_target: dedicated arena hostname and the 15 synthetic accounts only
+  prohibited: [public-targets, real-credentials, persistence, denial-of-service, destructive-actions]
+  stop_conditions: [out-of-scope-targeting, real-data, unexpected-external-traffic, service-instability]
+toolkit_routes:
+  red: RIL_NeoLabs-GreyPentesting-interns-toolkit-
+  blue_detection: RIL_NeoLabs-SOC1-interns-toolkit-
+  blue_response: RIL_NeoLabs-ITSEC-Support-Interns-Toolkit
