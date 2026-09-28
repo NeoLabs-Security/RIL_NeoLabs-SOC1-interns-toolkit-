@@ -1,0 +1,1 @@
+case_id,account_id,event_time_utc,event_type,outcome,source_ip,alert_or_event_id,query_time_window_utc,evidence_reference,analyst,notes
