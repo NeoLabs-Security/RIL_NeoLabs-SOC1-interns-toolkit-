@@ -27,7 +27,7 @@
     <!-- Current VCC schema emits authentication.login; keep the legacy value readable for older replay packs. -->
     <field name="event_type" type="pcre2">^(authentication|authentication\.login)$</field>
     <field name="outcome" type="pcre2">^failure$</field>
-    <description>NeoLabs VCC: Authentication failure from $(source_ip).</description>
+    <description>NeoLabs VCC: Authentication failure for $(synthetic_username) [$(synthetic_user_id)] from $(source_ip).</description>
     <group>authentication_failed,</group>
     <mitre>
       <id>T1110</id>
@@ -36,7 +36,7 @@
 
   <rule id="100111" level="9" frequency="5" timeframe="300">
     <if_matched_sid>100110</if_matched_sid>
-    <same_user />
+    <same_field>synthetic_user_id</same_field>
     <description>NeoLabs VCC: Repeated authentication failures for the same account within five minutes.</description>
     <group>authentication_failures,credential_access,</group>
     <mitre>
@@ -59,7 +59,7 @@
     <!-- Current VCC schema emits authentication.login; keep the legacy value readable for older replay packs. -->
     <field name="event_type" type="pcre2">^(authentication|authentication\.login)$</field>
     <field name="outcome" type="pcre2">^success$</field>
-    <description>NeoLabs VCC: Successful authentication from $(source_ip).</description>
+    <description>NeoLabs VCC: Successful authentication for $(synthetic_username) [$(synthetic_user_id)] from $(source_ip).</description>
     <group>authentication_success,</group>
   </rule>
 
@@ -67,11 +67,23 @@
     <if_matched_sid>100110</if_matched_sid>
     <field name="event_type" type="pcre2">^(authentication|authentication\.login)$</field>
     <field name="outcome" type="pcre2">^success$</field>
-    <same_user />
+    <same_field>synthetic_user_id</same_field>
     <description>NeoLabs VCC: Authentication success followed earlier failures for the same account.</description>
     <group>authentication_success_after_failures,credential_access,</group>
     <mitre>
       <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="100122" level="12">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^identity\.account_hijacked$</field>
+    <field name="synthetic_user_id" type="pcre2">^syn-credential-storm-pod-01-(?:0[1-9]|1[0-5])$</field>
+    <field name="outcome" type="pcre2">^success$</field>
+    <description>NeoLabs VCC: Week 3 account hijack confirmed for $(synthetic_username) [$(synthetic_user_id)] from $(source_ip).</description>
+    <group>authentication_success,account_hijack,credential_access,w03_credential_storm,</group>
+    <mitre>
+      <id>T1078</id>
     </mitre>
   </rule>
 
@@ -107,8 +119,23 @@
     <field name="event_type" type="pcre2">^network\.ip_watchlist_match$</field>
     <field name="event_action" type="pcre2">^ip_watchlist_match$</field>
     <field name="outcome" type="pcre2">^match$</field>
-    <description>NeoLabs VCC: Watched source IP $(source_ip) made an HTTPS request to the Week 3 arena.</description>
+    <description>NeoLabs VCC: Watched source IP $(source_ip) made an HTTPS request to $(metadata.path) (HTTP $(metadata.status)).</description>
     <group>network,ip_watchlist,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100170" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^network\.https_request$</field>
+    <description>NeoLabs VCC: HTTPS $(metadata.method) request from $(source_ip) to $(metadata.path) returned $(metadata.status).</description>
+    <group>network,https,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100180" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^host\.runtime_health$</field>
+    <field name="outcome" type="pcre2">^healthy$</field>
+    <description>NeoLabs VCC: Arena API runtime heartbeat; uptime $(metadata.process_uptime_seconds)s, RSS $(metadata.rss_megabytes) MB.</description>
+    <group>host,system_health,w03_credential_storm,</group>
   </rule>
 
 </group>

@@ -108,6 +108,23 @@ class CollectorValidationTests(unittest.TestCase):
         request = self.event(event_type="network.https_request", source_ip="198.51.100.8")
         self.assertEqual(self.collector.add_watchlist_matches([request]), [request])
 
+    def test_every_watched_request_creates_its_own_alert_event(self) -> None:
+        self.config.ip_watchlist_path.write_text("198.51.100.8\n", encoding="utf-8")
+        first_request = self.event(
+            event_id="request-001",
+            event_type="network.https_request",
+            source_ip="198.51.100.8",
+        )
+        second_request = self.event(
+            event_id="request-002",
+            event_type="network.https_request",
+            source_ip="198.51.100.8",
+        )
+        enriched = self.collector.add_watchlist_matches([first_request, second_request])
+        alerts = [event for event in enriched if event["event_type"] == "network.ip_watchlist_match"]
+        self.assertEqual(len(alerts), 2)
+        self.assertNotEqual(alerts[0]["event_id"], alerts[1]["event_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
