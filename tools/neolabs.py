@@ -14,10 +14,12 @@ import getpass
 import gzip
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import re
 import secrets
+import shutil
 import ssl
 import subprocess
 import sys
@@ -48,6 +50,8 @@ INSTALLATION_FILE = HOME_STATE / "installation-id"
 REPLAY_STATE_FILE = HOME_STATE / "replayed-objects.json"
 REPLAY_PENDING_FILE = HOME_STATE / "replay-pending.json"
 CURRENT_RELEASE_FILE = HOME_STATE / "current-release.json"
+ARENA_SESSION_FILE = HOME_STATE / "arena-session.json"
+IP_WATCHLIST_FILE = ROOT / "wazuh-stack" / "state" / "ip-watchlist.txt"
 CLIENT_VERSION_FILE = ROOT / "NEOLABS_SOC_CLIENT_VERSION"
 MAX_HTTP_BYTES = 25 * 1024 * 1024
 MAX_REPLAY_BYTES = 64 * 1024 * 1024
@@ -96,6 +100,15 @@ def validate_base_url(value: str) -> str:
     if parsed.username or parsed.password or parsed.fragment:
         fail("lab base URL must not contain embedded credentials or a fragment")
     return value.rstrip("/")
+
+
+def validate_arena_url(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value.strip())
+    if parsed.scheme != "https" or not parsed.netloc:
+        fail("arena URL must be an absolute HTTPS URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+        fail("arena URL must contain only the HTTPS scheme and hostname")
+    return urllib.parse.urlunsplit(("https", parsed.netloc, "", "", "")).rstrip("/")
 
 
 def ssl_context() -> ssl.SSLContext:
@@ -325,6 +338,196 @@ def update_simple_env(path: Path, updates: dict[str, str]) -> None:
     atomic_write(path, "\n".join(output) + "\n")
 
 
+def read_simple_env(path: Path, key: str) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def read_arena_session() -> dict[str, Any] | None:
+    try:
+        value = json.loads(ARENA_SESSION_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or value.get("scenario_id") != "w03-credential-storm":
+        return None
+    if not isinstance(value.get("arena_url"), str):
+        return None
+    return value
+
+
+def verify_arena_telemetry(arena_url: str, token: str) -> None:
+    endpoint = f"{arena_url}/api/internal/arena/telemetry?limit=1"
+    request = urllib.request.Request(
+        endpoint,
+        method="GET",
+        headers={
+            "Accept": "application/x-ndjson",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "NeoLabs-SOC-Arena-Enrolment/1.0",
+            "X-VCC-Installation-ID": installation_id(),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, context=ssl_context(), timeout=25) as response:
+            response.read(1024 * 1024 + 1)
+            pod = response.headers.get("X-VCC-Pod-ID", "")
+            scenario = response.headers.get("X-VCC-Scenario-ID", "")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            fail("the Week 3 Blue telemetry access code was rejected")
+        fail(f"the arena telemetry service returned HTTP {exc.code}")
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError):
+        fail("could not establish a verified HTTPS connection to the Week 3 arena")
+    if pod != "pod-01" or scenario != "w03-credential-storm":
+        fail("the server did not identify itself as the authorised Week 3 arena")
+
+
+def stage_collector_inputs() -> None:
+    script = ROOT / "wazuh-stack" / "scripts" / "stage-vcc-secrets.sh"
+    try:
+        subprocess.run(["bash", str(script)], cwd=script.parent.parent, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        fail("could not stage the protected arena collector configuration")
+
+
+def do_arena_join(args: argparse.Namespace) -> None:
+    stack = ROOT / "wazuh-stack"
+    env_path = stack / ".env"
+    if not env_path.is_file():
+        fail("Wazuh is not prepared yet; use the root launcher with the `arena` action")
+    arena_url = validate_arena_url(args.url or input("Week 3 arena URL: ").strip())
+    token = getpass.getpass("Blue telemetry access code: ").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", token):
+        fail("Blue telemetry access code must be the 64-character code issued privately by the facilitator")
+    verify_arena_telemetry(arena_url, token)
+
+    secret_dir = stack / "secrets" / "vcc"
+    state_dir = stack / "state"
+    secret_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write(secret_dir / "arena-token", token + "\n")
+    atomic_write(secret_dir / "installation-id", installation_id() + "\n")
+    atomic_write(state_dir / "assigned-pod", "pod-01\n")
+    atomic_write(state_dir / "collector-scope", "arena:w03-credential-storm\n")
+    previous_endpoint = read_simple_env(env_path, "VCC_TELEMETRY_ENDPOINT")
+    endpoint = f"{arena_url}/api/internal/arena/telemetry"
+    update_simple_env(env_path, {"VCC_TELEMETRY_ENDPOINT": endpoint, "VCC_POLL_INTERVAL_SECONDS": "5"})
+    atomic_write(ARENA_SESSION_FILE, json.dumps({
+        "arena_url": arena_url,
+        "telemetry_endpoint": endpoint,
+        "scenario_id": "w03-credential-storm",
+        "pod_id": "pod-01",
+        "joined_at": utc_now(),
+        "previous_telemetry_endpoint": previous_endpoint,
+    }, indent=2, sort_keys=True) + "\n")
+    stage_collector_inputs()
+    print("✓ Week 3 Blue telemetry access verified and staged.")
+    print("✓ The local collector will poll live arena events every 5 seconds.")
+
+
+def do_arena_status(_: argparse.Namespace) -> None:
+    session = read_arena_session()
+    if not session:
+        fail("this workstation has not joined the Week 3 arena")
+    print("NEOLABS WEEK 3 BLUE ARENA")
+    print(f"Arena:    {session['arena_url']}")
+    print("Scenario: w03-credential-storm")
+    print("Telemetry: configured for outbound HTTPS polling")
+
+
+def do_arena_leave(_: argparse.Namespace) -> None:
+    stack = ROOT / "wazuh-stack"
+    session = read_arena_session() or {}
+    if shutil.which("docker") and (stack / ".env").is_file():
+        subprocess.run(
+            ["docker", "compose", "--env-file", ".env", "stop", "vcc.telemetry.collector"],
+            cwd=stack,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    for path in (ARENA_SESSION_FILE, stack / "secrets" / "vcc" / "arena-token", stack / "state" / "collector-scope"):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+    if (stack / ".env").is_file():
+        previous_endpoint = session.get("previous_telemetry_endpoint")
+        update_simple_env(stack / ".env", {
+            "VCC_TELEMETRY_ENDPOINT": previous_endpoint if isinstance(previous_endpoint, str) else "",
+            "VCC_POLL_INTERVAL_SECONDS": "15",
+        })
+    print("✓ Week 3 arena access removed. Existing Wazuh history was preserved.")
+
+
+def read_ip_watchlist() -> set[str]:
+    try:
+        lines = IP_WATCHLIST_FILE.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return set()
+    values: set[str] = set()
+    for line in lines:
+        if line.strip():
+            try:
+                values.add(str(ipaddress.ip_address(line.strip())))
+            except ValueError:
+                fail("the local IP watchlist is malformed; ask a mentor to review it")
+    return values
+
+
+def save_ip_watchlist(values: set[str]) -> None:
+    IP_WATCHLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(values, key=lambda value: (ipaddress.ip_address(value).version, ipaddress.ip_address(value).packed))
+    atomic_write(IP_WATCHLIST_FILE, "".join(f"{value}\n" for value in ordered))
+    secret_dir = ROOT / "wazuh-stack" / "secrets" / "vcc"
+    has_credential = (secret_dir / "arena-token").is_file() or all(
+        (secret_dir / name).is_file() for name in ("client.crt", "client.key", "ca.crt")
+    )
+    if has_credential and shutil.which("docker") and (ROOT / "wazuh-stack" / ".env").is_file() and subprocess.run(
+        ["docker", "image", "inspect", "neolabs/vcc-telemetry-collector:0.1.0"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0:
+        stage_collector_inputs()
+
+
+def do_ip_blacklist(args: argparse.Namespace) -> None:
+    values = read_ip_watchlist()
+    if args.ip_action == "list":
+        print("Detection-only IP watchlist (traffic is not blocked):")
+        if not values:
+            print("  (empty)")
+        else:
+            for value in sorted(values):
+                print(f"  {value}")
+        return
+    if args.ip_action == "clear":
+        save_ip_watchlist(set())
+        print("✓ Detection-only IP watchlist cleared.")
+        return
+    try:
+        address = str(ipaddress.ip_address(args.ip))
+    except ValueError:
+        fail("enter one exact IPv4 or IPv6 address; CIDRs, ranges and hostnames are not accepted")
+    if args.ip_action == "add":
+        if len(values) >= 256 and address not in values:
+            fail("the local watchlist is limited to 256 exact addresses")
+        values.add(address)
+        save_ip_watchlist(values)
+        print(f"✓ {address} added. Wazuh will alert when it makes an arena HTTPS request; traffic is not blocked.")
+        return
+    values.discard(address)
+    save_ip_watchlist(values)
+    print(f"✓ {address} removed from the detection-only IP watchlist.")
+
+
 def start_wazuh_stack() -> Path:
     stack = ROOT / "wazuh-stack"
     env_path = stack / ".env"
@@ -541,6 +744,11 @@ def do_evidence(_: argparse.Namespace) -> None:
 
 
 def do_connect(_: argparse.Namespace) -> None:
+    arena = read_arena_session()
+    if arena:
+        start_wazuh_stack()
+        print("✓ ARENA LIVE mode: local Wazuh is receiving Week 3 events through outbound HTTPS polling.")
+        return
     session = read_session()
     manifest = refresh(session)
     if not student_is_ready(manifest):
@@ -562,6 +770,12 @@ def do_connect(_: argparse.Namespace) -> None:
 
 
 def do_status(_: argparse.Namespace) -> None:
+    arena = read_arena_session()
+    if arena:
+        do_arena_status(argparse.Namespace())
+        print(f"Client:   {client_version()}")
+        print("Access:   READY")
+        return
     session = read_session()
     manifest = refresh(session)
     print("NEOLABS SECURITY LAB")
@@ -589,25 +803,36 @@ def do_pod_info(_: argparse.Namespace) -> None:
 
 
 def do_scope(_: argparse.Namespace) -> None:
+    if read_arena_session():
+        print("Authorised arena: facilitator-issued Week 3 hostname")
+        print("Scenario: w03-credential-storm; identities: 15 synthetic pod-01 fixtures only")
+        return
     manifest = refresh(read_session())
     print(f"Authorised pod: {manifest['pod_id']}")
     print("SOC target selection is intentionally hidden. Live telemetry and replay are both pod-scoped by NeoLabs.")
 
 
 def do_targets(_: argparse.Namespace) -> None:
+    if read_arena_session():
+        print("SOC target selection remains hidden. Monitor the live Week 3 arena feed in local Wazuh.")
+        return
     refresh(read_session())
     print("SOC target selection is intentionally hidden. Use `neolabs connect` for live/replay telemetry and `neolabs evidence` for approved native evidence.")
 
 
 def do_disconnect(_: argparse.Namespace) -> None:
+    if read_arena_session():
+        do_arena_leave(argparse.Namespace())
     stop_script = ROOT / "wazuh-stack" / "scripts" / "stop.sh"
     if stop_script.is_file():
         subprocess.run(["bash", str(stop_script)], cwd=stop_script.parent.parent, check=False)
-    for path in (SESSION_FILE, RUNTIME_MANIFEST):
+    for path in (SESSION_FILE, RUNTIME_MANIFEST, ARENA_SESSION_FILE):
         try:
             path.unlink()
         except FileNotFoundError:
             pass
+    arena_token = ROOT / "wazuh-stack" / "secrets" / "vcc" / "arena-token"
+    arena_token.unlink(missing_ok=True)
     print("✓ Local NeoLabs session disconnected. Long-lived SOC certificate and replay history, if present, were not deleted.")
 
 
@@ -659,6 +884,25 @@ def build_parser() -> argparse.ArgumentParser:
     login.add_argument("--pod")
     login.add_argument("--base-url", default=None)
     login.set_defaults(func=do_login)
+    arena = sub.add_parser("arena", help="join or inspect the pod-less Week 3 Blue arena")
+    arena_sub = arena.add_subparsers(dest="arena_command", required=True)
+    arena_join = arena_sub.add_parser("join", help="verify and stage facilitator-issued live arena telemetry access")
+    arena_join.add_argument("--url", default=None, help="facilitator-issued HTTPS arena URL; prompts when omitted")
+    arena_join.set_defaults(func=do_arena_join)
+    arena_status = arena_sub.add_parser("status", help="show the local Week 3 arena connection")
+    arena_status.set_defaults(func=do_arena_status)
+    arena_leave = arena_sub.add_parser("leave", help="remove arena access while preserving Wazuh history")
+    arena_leave.set_defaults(func=do_arena_leave)
+    ip_blacklist = sub.add_parser("ip-blacklist", aliases=["ip-watchlist"], help="manage exact source IPs that trigger local Wazuh alerts")
+    ip_sub = ip_blacklist.add_subparsers(dest="ip_action", required=True)
+    ip_list = ip_sub.add_parser("list", help="list watched exact addresses")
+    ip_list.set_defaults(func=do_ip_blacklist)
+    ip_clear = ip_sub.add_parser("clear", help="remove every watched address")
+    ip_clear.set_defaults(func=do_ip_blacklist)
+    for action in ("add", "remove"):
+        command = ip_sub.add_parser(action, help=f"{action} one exact IPv4 or IPv6 address")
+        command.add_argument("ip")
+        command.set_defaults(func=do_ip_blacklist)
     connect = sub.add_parser("connect", help="connect to live telemetry or replay the current S3 evidence automatically")
     connect.set_defaults(func=do_connect)
     status = sub.add_parser("status", help="show current live/replay state")

@@ -14,7 +14,7 @@ fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: internal/common/Start-NeoLabsSOC.sh [start|doctor|status|login] [--host linux|windows] [--no-browser]
+Usage: internal/common/Start-NeoLabsSOC.sh [start|arena|doctor|status|login] [--host linux|windows] [--no-browser]
 
 This is the shared post-runtime SOC orchestrator. Platform launchers must first
 prove/repair Docker, then hand off here. Students should normally run only the
@@ -24,7 +24,7 @@ EOF
 
 while (( $# > 0 )); do
   case "$1" in
-    start|doctor|status|login) ACTION="$1"; shift ;;
+    start|arena|doctor|status|login) ACTION="$1"; shift ;;
     --host)
       [[ $# -ge 2 ]] || fail '--host requires linux or windows'
       HOST_MODE="$2"; shift 2 ;;
@@ -99,7 +99,15 @@ bash wazuh-stack/scripts/configure-dashboard-access.sh "$HOST_MODE" || fail 'Das
 
 python3 wazuh-stack/scripts/validate-local-rules.py || fail 'NeoLabs custom Wazuh rules are invalid; startup stopped before container recovery.'
 
-if [[ ! -f "${HOME}/.neolabs/soc/session.json" ]]; then
+if [[ "$ACTION" == arena ]]; then
+  log 'Joining the dedicated Week 3 Blue arena...'
+  python3 -m tools.cli arena join || fail 'Week 3 arena enrolment failed.'
+fi
+
+if [[ -f "${HOME}/.neolabs/soc/arena-session.json" ]]; then
+  log 'Checking the saved Week 3 arena session...'
+  python3 -m tools.cli arena status || fail 'Saved Week 3 arena access is invalid; run the launcher with the arena action again.'
+elif [[ ! -f "${HOME}/.neolabs/soc/session.json" ]]; then
   log 'Sign in with your assigned pod number and private NeoLabs Access Code.'
   python3 -m tools.cli login || fail 'NeoLabs login failed.'
 else
@@ -168,12 +176,22 @@ printf '[OK] Manager, indexer, dashboard, collector and dashboard API connector 
 log 'Confirming current pod/scenario status...'
 python3 -m tools.cli status || fail 'Final NeoLabs status check failed.'
 
-manifest_fields="$(python3 - runtime/access-manifest.json <<'PY'
+manifest_fields="$(python3 - runtime/access-manifest.json "${HOME}/.neolabs/soc/arena-session.json" <<'PY'
 import json,sys
-d=json.load(open(sys.argv[1], encoding='utf-8'))
-print(d.get('pod_id',''))
-print(d.get('scenario_id',''))
-print('false' if d.get('student_ready', True) is False else 'true')
+arena_path=sys.argv[2]
+try:
+    arena=json.load(open(arena_path, encoding='utf-8'))
+except (FileNotFoundError, json.JSONDecodeError):
+    arena=None
+if isinstance(arena, dict) and arena.get('scenario_id') == 'w03-credential-storm':
+    print('pod-01')
+    print('w03-credential-storm')
+    print('true')
+else:
+    d=json.load(open(sys.argv[1], encoding='utf-8'))
+    print(d.get('pod_id',''))
+    print(d.get('scenario_id',''))
+    print('false' if d.get('student_ready', True) is False else 'true')
 PY
 )"
 assigned_pod="$(sed -n '1p' <<<"$manifest_fields")"
@@ -202,8 +220,13 @@ fi
 log 'Checking latest-event freshness...'
 bash wazuh-stack/scripts/telemetry-freshness.sh || warn 'Telemetry is searchable but its freshness needs review; run the root launcher with doctor.'
 
-printf '\n\033[32mSOC WORKSTATION READY\033[0m\n'
-printf 'Verified: assigned-pod current-scenario telemetry is indexed and searchable in Wazuh.\n'
+if [[ "$current_scenario" == w03-credential-storm && -f "${HOME}/.neolabs/soc/arena-session.json" ]]; then
+  printf '\n\033[32mWEEK 3 BLUE WORKSTATION READY\033[0m\n'
+  printf 'Verified: live arena telemetry is indexed and searchable in local Wazuh.\n'
+else
+  printf '\n\033[32mSOC WORKSTATION READY\033[0m\n'
+  printf 'Verified: assigned-pod current-scenario telemetry is indexed and searchable in Wazuh.\n'
+fi
 printf '\nAssigned pod:\n%s\n\nCurrent scenario:\n%s\n\nRecommended time range:\nLast 24 hours\n\nSuggested Threat Hunting filters:\ndata.pod_id = %s\nAND\ndata.scenario_id = %s\n' "$assigned_pod" "$current_scenario" "$assigned_pod" "$current_scenario"
 if [[ "$HOST_MODE" == windows ]]; then
   printf 'Windows launcher will copy the private dashboard password and open the browser.\n'

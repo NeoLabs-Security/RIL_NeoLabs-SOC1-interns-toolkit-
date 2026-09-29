@@ -102,4 +102,13 @@
     <group>telemetry_health,visibility_gap,</group>
   </rule>
 
+  <rule id="100160" level="12">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^network\.ip_watchlist_match$</field>
+    <field name="event_action" type="pcre2">^ip_watchlist_match$</field>
+    <field name="outcome" type="pcre2">^match$</field>
+    <description>NeoLabs VCC: Watched source IP $(source_ip) made an HTTPS request to the Week 3 arena.</description>
+    <group>network,ip_watchlist,w03_credential_storm,</group>
+  </rule>
+
 </group>

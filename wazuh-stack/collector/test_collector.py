@@ -17,6 +17,9 @@ class CollectorValidationTests(unittest.TestCase):
             certificate=root / "client.crt",
             private_key=root / "client.key",
             ca_certificate=root / "ca.crt",
+            arena_token_path=root / "arena-token",
+            arena_ca_certificate=root / "arena-ca.crt",
+            ip_watchlist_path=root / "ip-watchlist.txt",
             installation_id_path=root / "installation-id",
             cursor_path=root / "cursor",
             assigned_pod_path=root / "assigned-pod",
@@ -84,6 +87,26 @@ class CollectorValidationTests(unittest.TestCase):
         self.assertIn("cursor=cursor-123", url)
         self.assertIn("limit=1000", url)
         self.assertNotIn("pod", url.lower())
+
+    def test_exact_watched_ip_creates_a_deterministic_alert_event(self) -> None:
+        self.config.ip_watchlist_path.write_text("198.51.100.8\n", encoding="utf-8")
+        request = self.event(
+            event_type="network.https_request",
+            event_category="network",
+            event_action="https_request",
+            source_ip="198.51.100.8",
+            metadata={"method": "GET", "path": "/login", "status": "200"},
+        )
+        first = self.collector.add_watchlist_matches([request])
+        second = self.collector.add_watchlist_matches([request])
+        self.assertEqual(len(first), 2)
+        self.assertEqual(first[1]["event_type"], "network.ip_watchlist_match")
+        self.assertEqual(first[1]["event_id"], second[1]["event_id"])
+
+    def test_unwatched_ip_does_not_create_a_match(self) -> None:
+        self.config.ip_watchlist_path.write_text("198.51.100.9\n", encoding="utf-8")
+        request = self.event(event_type="network.https_request", source_ip="198.51.100.8")
+        self.assertEqual(self.collector.add_watchlist_matches([request]), [request])
 
 
 if __name__ == "__main__":
