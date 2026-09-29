@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('start','doctor','status','login')]
+    [ValidateSet('start','arena','doctor','status','login')]
     [string]$Action = 'start',
     [switch]$ValidateOnly,
     [switch]$NoBrowser,
@@ -57,7 +57,7 @@ $commonArgs = @($CommonRelative, $Action, '--host', 'windows', '--no-browser')
 $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) { exit $exitCode }
 
-if ($Action -ne 'start') { exit 0 }
+if ($Action -notin @('start', 'arena')) { exit 0 }
 
 $dashboardPort = (& wsl.exe --cd $linuxRoot bash -lc 'source wazuh-stack/.env >/dev/null 2>&1; printf "%s" "${WAZUH_DASHBOARD_PORT:-8443}"' | Select-Object -First 1)
 if (-not $dashboardPort -or $dashboardPort.Trim() -notmatch '^\d{2,5}$') { $dashboardPort = '8443' } else { $dashboardPort = $dashboardPort.Trim() }

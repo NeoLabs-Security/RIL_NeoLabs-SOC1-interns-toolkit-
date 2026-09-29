@@ -25,7 +25,7 @@ run_root() {
 
 usage() {
   cat <<'EOF'
-Usage: ./start-neolabs-soc.sh [start|doctor|status|login] [--no-browser]
+Usage: ./start-neolabs-soc.sh [start|arena|doctor|status|login] [--no-browser]
 
 Ubuntu/Debian: this launcher proves/repairs the native Docker runtime once, then
 hands off to the shared NeoLabs SOC/Wazuh orchestrator. Healthy subsequent runs
@@ -38,7 +38,7 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    start|doctor|status|login) ACTION="$arg" ;;
+    start|arena|doctor|status|login) ACTION="$arg" ;;
     --no-browser) NO_BROWSER=1 ;;
     --validate-only) VALIDATE_ONLY=1 ;;
     -h|--help) usage; exit 0 ;;

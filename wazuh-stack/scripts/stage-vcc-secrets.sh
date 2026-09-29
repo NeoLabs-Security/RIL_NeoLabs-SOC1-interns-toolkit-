@@ -27,9 +27,9 @@ printf '[NeoLabs Wazuh] Staging private VCC credentials and collector runtime st
 docker volume inspect "$secret_volume" >/dev/null 2>&1 || docker volume create "$secret_volume" >/dev/null
 docker volume inspect "$state_volume" >/dev/null 2>&1 || docker volume create "$state_volume" >/dev/null
 
-# Keep host sources owner-only. A one-shot root helper copies only the four
+# Keep host sources owner-only. A one-shot root helper copies only the selected
 # collector credential inputs into a private Docker volume and seeds the
-# authoritative server-issued pod into a separate writable runtime-state volume.
+# authoritative server-issued scope into a separate writable runtime-state volume.
 # Cursor/health survive ordinary restarts but are reset if pod assignment changes.
 docker run --rm \
   --user 0:0 \
@@ -42,8 +42,8 @@ docker run --rm \
     uid="$(id -u collector)"
     gid="$(id -g collector)"
 
-    rm -f /secret-dest/installation-id /secret-dest/client.crt /secret-dest/client.key /secret-dest/ca.crt
-    for name in installation-id client.crt client.key ca.crt; do
+    rm -f /secret-dest/installation-id /secret-dest/client.crt /secret-dest/client.key /secret-dest/ca.crt /secret-dest/arena-token /secret-dest/arena-ca.crt
+    for name in installation-id client.crt client.key ca.crt arena-token arena-ca.crt; do
       if [ -f "/secret-source/$name" ]; then
         cp "/secret-source/$name" "/secret-dest/$name"
       fi
@@ -58,21 +58,35 @@ docker run --rm \
 
     old_pod=""
     new_pod=""
+    old_scope=""
+    new_scope=""
     [ ! -f /state-dest/assigned-pod ] || old_pod="$(tr -d "\r\n" < /state-dest/assigned-pod)"
     [ ! -f /state-source/assigned-pod ] || new_pod="$(tr -d "\r\n" < /state-source/assigned-pod)"
+    [ ! -f /state-dest/collector-scope ] || old_scope="$(tr -d "\r\n" < /state-dest/collector-scope)"
+    if [ -f /state-source/collector-scope ]; then
+      new_scope="$(tr -d "\r\n" < /state-source/collector-scope)"
+    elif [ -n "$new_pod" ]; then
+      new_scope="pod:$new_pod"
+    fi
 
     if [ -n "$new_pod" ]; then
       # A cursor is scoped to the server-issued pod. Preserve it only when the
       # assignment is unchanged; never carry an old pod cursor into a new pod.
-      if [ "$old_pod" != "$new_pod" ]; then
+      if [ "$old_pod" != "$new_pod" ] || [ "$old_scope" != "$new_scope" ]; then
         rm -f /state-dest/vcc-telemetry.cursor /state-dest/collector-health.json
       fi
       rm -f /state-dest/assigned-pod
       cp /state-source/assigned-pod /state-dest/assigned-pod
+      printf "%s\n" "$new_scope" > /state-dest/collector-scope
     else
       # No current authoritative pod: clear only ephemeral collector state. Raw
       # telemetry/indexer data and host enrolment material remain untouched.
-      rm -f /state-dest/assigned-pod /state-dest/vcc-telemetry.cursor /state-dest/collector-health.json
+      rm -f /state-dest/assigned-pod /state-dest/collector-scope /state-dest/vcc-telemetry.cursor /state-dest/collector-health.json
+    fi
+
+    rm -f /state-dest/ip-watchlist.txt
+    if [ -f /state-source/ip-watchlist.txt ]; then
+      cp /state-source/ip-watchlist.txt /state-dest/ip-watchlist.txt
     fi
 
     chown -R "$uid:$gid" /state-dest
@@ -88,10 +102,14 @@ docker run --rm \
   --entrypoint sh \
   "$image" -ceu '
     test -r /run/vcc-secrets/installation-id
-    if [ -e /run/vcc-secrets/client.crt ] || [ -e /run/vcc-secrets/client.key ] || [ -e /run/vcc-secrets/ca.crt ]; then
+    if [ -e /run/vcc-secrets/arena-token ]; then
+      test -r /run/vcc-secrets/arena-token
+    elif [ -e /run/vcc-secrets/client.crt ] || [ -e /run/vcc-secrets/client.key ] || [ -e /run/vcc-secrets/ca.crt ]; then
       test -r /run/vcc-secrets/client.crt
       test -r /run/vcc-secrets/client.key
       test -r /run/vcc-secrets/ca.crt
+    else
+      exit 1
     fi
     probe="/runtime-state/.neolabs-state-probe-$$"
     : > "$probe"

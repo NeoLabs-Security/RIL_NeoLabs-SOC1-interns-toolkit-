@@ -9,6 +9,8 @@ stable and that every event belongs to that server-issued pod.
 from __future__ import annotations
 
 import json
+import hashlib
+import ipaddress
 import os
 import signal
 import ssl
@@ -59,6 +61,9 @@ class Config:
     certificate: Path
     private_key: Path
     ca_certificate: Path
+    arena_token_path: Path
+    arena_ca_certificate: Path
+    ip_watchlist_path: Path
     installation_id_path: Path
     cursor_path: Path
     assigned_pod_path: Path
@@ -81,6 +86,9 @@ class Config:
             certificate=Path(os.getenv("VCC_CLIENT_CERT_PATH", "/run/vcc-secrets/client.crt")),
             private_key=Path(os.getenv("VCC_CLIENT_KEY_PATH", "/run/vcc-secrets/client.key")),
             ca_certificate=Path(os.getenv("VCC_CA_CERT_PATH", "/run/vcc-secrets/ca.crt")),
+            arena_token_path=Path(os.getenv("VCC_ARENA_TOKEN_PATH", "/run/vcc-secrets/arena-token")),
+            arena_ca_certificate=Path(os.getenv("VCC_ARENA_CA_CERT_PATH", "/run/vcc-secrets/arena-ca.crt")),
+            ip_watchlist_path=Path(os.getenv("VCC_IP_WATCHLIST_PATH", "/runtime-state/ip-watchlist.txt")),
             installation_id_path=Path(
                 os.getenv("VCC_INSTALLATION_ID_PATH", "/run/vcc-secrets/installation-id")
             ),
@@ -109,6 +117,9 @@ class Collector:
         atomic_write(self.config.health_path, json.dumps(payload, sort_keys=True) + "\n")
 
     def enrolled(self) -> bool:
+        token = read_optional(self.config.arena_token_path)
+        if token:
+            return bool(self.config.endpoint and read_optional(self.config.installation_id_path))
         required = (
             self.config.endpoint,
             str(self.config.certificate) if self.config.certificate.is_file() else "",
@@ -119,12 +130,18 @@ class Collector:
         return all(required)
 
     def ssl_context(self) -> ssl.SSLContext:
-        context = ssl.create_default_context(cafile=str(self.config.ca_certificate))
+        arena_token = read_optional(self.config.arena_token_path)
+        if arena_token:
+            cafile = str(self.config.arena_ca_certificate) if self.config.arena_ca_certificate.is_file() else None
+            context = ssl.create_default_context(cafile=cafile)
+        else:
+            context = ssl.create_default_context(cafile=str(self.config.ca_certificate))
         context.minimum_version = ssl.TLSVersion.TLSv1_2
-        context.load_cert_chain(
-            certfile=str(self.config.certificate),
-            keyfile=str(self.config.private_key),
-        )
+        if not arena_token:
+            context.load_cert_chain(
+                certfile=str(self.config.certificate),
+                keyfile=str(self.config.private_key),
+            )
         context.check_hostname = True
         context.verify_mode = ssl.CERT_REQUIRED
         return context
@@ -146,14 +163,21 @@ class Collector:
         if not installation_id:
             raise RuntimeError("installation identifier is missing")
 
+        headers = {
+            "Accept": "application/x-ndjson",
+            "User-Agent": "NeoLabs-VCC-Telemetry-Collector/0.2.0",
+            "X-VCC-Installation-ID": installation_id,
+        }
+        arena_token = read_optional(self.config.arena_token_path)
+        if arena_token:
+            if not all(character in "0123456789abcdef" for character in arena_token) or len(arena_token) != 64:
+                raise RuntimeError("arena telemetry credential is malformed")
+            headers["Authorization"] = f"Bearer {arena_token}"
+
         request = urllib.request.Request(
             self.build_url(cursor),
             method="GET",
-            headers={
-                "Accept": "application/x-ndjson",
-                "User-Agent": "NeoLabs-VCC-Telemetry-Collector/0.1.0",
-                "X-VCC-Installation-ID": installation_id,
-            },
+            headers=headers,
         )
         with urllib.request.urlopen(request, context=self.ssl_context(), timeout=30) as response:
             content_length = response.headers.get("Content-Length")
@@ -213,11 +237,59 @@ class Collector:
             output.flush()
             os.fsync(output.fileno())
 
+    def ip_watchlist(self) -> set[str]:
+        entries: set[str] = set()
+        try:
+            lines = self.config.ip_watchlist_path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            return entries
+        for line in lines:
+            value = line.strip()
+            if not value or value.startswith("#"):
+                continue
+            try:
+                entries.add(str(ipaddress.ip_address(value)))
+            except ValueError as exc:
+                raise RuntimeError("IP watchlist contains an invalid exact address") from exc
+        return entries
+
+    def add_watchlist_matches(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        watched = self.ip_watchlist()
+        if not watched:
+            return events
+        output: list[dict[str, Any]] = []
+        for event in events:
+            output.append(event)
+            source = str(event.get("source_ip") or "")
+            if event.get("event_type") != "network.https_request":
+                continue
+            try:
+                source = str(ipaddress.ip_address(source))
+            except ValueError:
+                continue
+            if source not in watched:
+                continue
+            original_id = str(event.get("event_id") or "")
+            derived = dict(event)
+            derived["event_id"] = hashlib.sha256(f"ip-watchlist:{original_id}:{source}".encode()).hexdigest()
+            derived["event_type"] = "network.ip_watchlist_match"
+            derived["event_category"] = "network"
+            derived["event_action"] = "ip_watchlist_match"
+            derived["outcome"] = "match"
+            derived["source_ip"] = source
+            metadata = dict(event.get("metadata") or {}) if isinstance(event.get("metadata"), dict) else {}
+            metadata["observed_event_id"] = original_id
+            metadata["watchlist_source"] = "local-blue-team"
+            derived["metadata"] = metadata
+            output.append(derived)
+        return output
+
     def poll_once(self) -> None:
         cursor = read_optional(self.config.cursor_path)
         events, next_cursor, assigned_pod = self.fetch(cursor)
         self.verify_assigned_pod(assigned_pod)
-        self.append_events(events)
+        enriched_events = self.add_watchlist_matches(events)
+        self.append_events(enriched_events)
         if next_cursor and next_cursor != cursor:
             atomic_write(self.config.cursor_path, next_cursor + "\n")
         self.failures = 0
@@ -226,6 +298,7 @@ class Collector:
             "pod-scoped telemetry poll completed",
             assigned_pod=assigned_pod,
             events_received=len(events),
+            events_written=len(enriched_events),
             cursor_present=bool(next_cursor or cursor),
         )
 

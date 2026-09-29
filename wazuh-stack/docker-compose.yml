@@ -133,6 +133,9 @@ services:
       VCC_CLIENT_CERT_PATH: /run/vcc-secrets/client.crt
       VCC_CLIENT_KEY_PATH: /run/vcc-secrets/client.key
       VCC_CA_CERT_PATH: /run/vcc-secrets/ca.crt
+      VCC_ARENA_TOKEN_PATH: /run/vcc-secrets/arena-token
+      VCC_ARENA_CA_CERT_PATH: /run/vcc-secrets/arena-ca.crt
+      VCC_IP_WATCHLIST_PATH: /runtime-state/ip-watchlist.txt
       VCC_INSTALLATION_ID_PATH: /run/vcc-secrets/installation-id
       VCC_ASSIGNED_POD_PATH: /runtime-state/assigned-pod
       VCC_TELEMETRY_CURSOR_PATH: /runtime-state/vcc-telemetry.cursor
