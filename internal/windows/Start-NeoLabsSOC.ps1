@@ -63,8 +63,18 @@ $dashboardPort = (& wsl.exe --cd $linuxRoot bash -lc 'source wazuh-stack/.env >/
 if (-not $dashboardPort -or $dashboardPort.Trim() -notmatch '^\d{2,5}$') { $dashboardPort = '8443' } else { $dashboardPort = $dashboardPort.Trim() }
 $dashboardUrl = "https://127.0.0.1:$dashboardPort"
 $nightWatchUrl = "$dashboardUrl/app/dashboards#/view/neolabs-night-watch"
+$week3ArenaUrl = "$dashboardUrl/app/dashboards#/view/neolabs-week3-arena"
 & wsl.exe --cd $linuxRoot test -f wazuh-stack/state/dashboard-objects.ready
-$openUrl = if ($LASTEXITCODE -eq 0) { $nightWatchUrl } else { $dashboardUrl }
+$objectsReady = $LASTEXITCODE -eq 0
+& wsl.exe --cd $linuxRoot bash -lc 'test -f "$HOME/.neolabs/soc/arena-session.json"'
+$arenaActive = $LASTEXITCODE -eq 0
+$openUrl = if ($objectsReady -and $arenaActive) {
+    $week3ArenaUrl
+} elseif ($objectsReady) {
+    $nightWatchUrl
+} else {
+    $dashboardUrl
+}
 
 $credentialCopied = $false
 if (-not $NoClipboard) {
