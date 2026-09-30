@@ -3,9 +3,9 @@
 Use this pack only while the central assignment explicitly opens `w03-credential-storm`.
 
 1. Read [`arena-contract.yaml`](arena-contract.yaml) and the current Rules of Engagement.
-2. Pull the current toolkit and run `START-NEOLABS-SOC.cmd arena` on Windows or `bash start-neolabs-soc.sh arena` on Linux. Enter the facilitator-issued arena URL and hidden Blue telemetry access code. Existing Wazuh data and credentials are reused.
+2. For a direct-IP arena, securely receive `arena-ca.crt` and verify its SHA256 fingerprint with the facilitator. Run `bash start-neolabs-soc.sh arena`, then enter the public-IP URL, telemetry code and CA path when prompted. A publicly trusted hostname can leave the CA prompt blank. Existing Wazuh data and credentials are reused.
 3. Wait for `WEEK 3 BLUE WORKSTATION READY`, then open [`../../docs/week-03/credential-storm-blue-detection-guide.md`](../../docs/week-03/credential-storm-blue-detection-guide.md).
-4. Open **NeoLabs — Week 3 Arena Operations** in Wazuh. It shows live HTTPS traffic and attacker IPs, synthetic usernames/account IDs, confirmed hijack alerts, arena runtime health and blacklisted-IP hits.
+4. Open **NeoLabs — Week 3 Arena Operations** in Wazuh. It shows live HTTPS traffic and attacker IPs, synthetic usernames/account IDs, informational hijack telemetry, arena host/runtime health and high-priority blacklisted-IP hits.
 5. Record facts in `templates/week-03-blue-evidence-ledger.csv` without passwords, tokens or session material.
 6. Hand confirmed containment requests to the IT Security Support responder, using the alert/event ID and account ID.
 7. Validate a copied ledger offline with `python scripts/validate-week03-blue-ledger.py PATH.csv`.
