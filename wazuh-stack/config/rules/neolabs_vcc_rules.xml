@@ -22,7 +22,7 @@
     <options>no_full_log</options>
   </rule>
 
-  <rule id="100110" level="5">
+  <rule id="100110" level="3">
     <if_sid>100100</if_sid>
     <!-- Current VCC schema emits authentication.login; keep the legacy value readable for older replay packs. -->
     <field name="event_type" type="pcre2">^(authentication|authentication\.login)$</field>
@@ -34,7 +34,7 @@
     </mitre>
   </rule>
 
-  <rule id="100111" level="9" frequency="5" timeframe="300">
+  <rule id="100111" level="3" frequency="5" timeframe="300">
     <if_matched_sid>100110</if_matched_sid>
     <same_field>synthetic_user_id</same_field>
     <description>NeoLabs VCC: Repeated authentication failures for the same account within five minutes.</description>
@@ -44,7 +44,7 @@
     </mitre>
   </rule>
 
-  <rule id="100112" level="8" frequency="5" timeframe="300">
+  <rule id="100112" level="3" frequency="5" timeframe="300">
     <if_matched_sid>100110</if_matched_sid>
     <same_field>source_ip</same_field>
     <description>NeoLabs VCC: One source generated repeated authentication failures within five minutes.</description>
@@ -63,7 +63,7 @@
     <group>authentication_success,</group>
   </rule>
 
-  <rule id="100121" level="10" frequency="2" timeframe="900">
+  <rule id="100121" level="3" frequency="2" timeframe="900">
     <if_matched_sid>100110</if_matched_sid>
     <field name="event_type" type="pcre2">^(authentication|authentication\.login)$</field>
     <field name="outcome" type="pcre2">^success$</field>
@@ -75,7 +75,7 @@
     </mitre>
   </rule>
 
-  <rule id="100122" level="12">
+  <rule id="100122" level="3">
     <if_sid>100100</if_sid>
     <field name="event_type" type="pcre2">^identity\.account_hijacked$</field>
     <field name="synthetic_user_id" type="pcre2">^syn-credential-storm-pod-01-(?:0[1-9]|1[0-5])$</field>
@@ -136,6 +136,34 @@
     <field name="outcome" type="pcre2">^healthy$</field>
     <description>NeoLabs VCC: Arena API runtime heartbeat; uptime $(metadata.process_uptime_seconds)s, RSS $(metadata.rss_megabytes) MB.</description>
     <group>host,system_health,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100181" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^host\.system_health$</field>
+    <description>NeoLabs VCC: Arena host health snapshot with memory, disk, load and container state.</description>
+    <group>host,system_health,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100182" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^host\.authentication$</field>
+    <description>NeoLabs VCC: Arena host authentication telemetry for $(synthetic_username) from $(source_ip).</description>
+    <group>host,authentication,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100183" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^host\.service_event$</field>
+    <description>NeoLabs VCC: Arena host service event observed.</description>
+    <group>host,service_health,w03_credential_storm,</group>
+  </rule>
+
+  <rule id="100184" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^incident_response\.host_action$</field>
+    <description>NeoLabs VCC: Approved arena host response action $(event_action) recorded.</description>
+    <group>incident_response,host,w03_credential_storm,</group>
   </rule>
 
 </group>

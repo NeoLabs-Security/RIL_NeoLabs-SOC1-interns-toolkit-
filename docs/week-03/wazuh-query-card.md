@@ -28,10 +28,10 @@ Rule `100160` is the high-priority local alert produced when an exact IP on the 
 rule.id:"100122"
 ```
 
-Rule `100122` is the high-priority confirmed-hijack alert. It includes `data.synthetic_username`, `data.synthetic_user_id` and `data.source_ip`.
+Rule `100122` is informational confirmed-hijack telemetry. It includes `data.synthetic_username`, `data.synthetic_user_id` and `data.source_ip`, but is deliberately level 3 rather than a prominent alert.
 
 ```text
-data.scenario_id:"w03-credential-storm" AND data.event_type:"host.runtime_health"
+data.scenario_id:"w03-credential-storm" AND data.event_type:host.*
 ```
 
 Open **NeoLabs — Week 3 Arena Operations** for four live tables: network requests, account activity, sanitised machine/runtime health and blacklisted-IP hits. Use a short time range such as **Last 15 minutes** during the exercise.

@@ -34,14 +34,19 @@ class Week03WazuhContentTests(unittest.TestCase):
         watchlist = objects["neolabs-week3-watchlist-search"]["attributes"]
         self.assertIn("rule.id: 100160", watchlist["kibanaSavedObjectMeta"]["searchSourceJSON"])
 
-    def test_week3_high_priority_rules_are_present(self) -> None:
+    def test_only_watchlist_is_high_priority_for_week3_identity_activity(self) -> None:
         path = ROOT / "wazuh-stack" / "config" / "rules" / "neolabs_vcc_rules.xml"
         document = ET.fromstring(path.read_text(encoding="utf-8"))
         rules = {rule.attrib["id"]: rule for rule in document.findall(".//rule")}
-        self.assertEqual(rules["100122"].attrib["level"], "12")
+        self.assertEqual(rules["100110"].attrib["level"], "3")
+        self.assertEqual(rules["100120"].attrib["level"], "3")
+        self.assertEqual(rules["100121"].attrib["level"], "3")
+        self.assertEqual(rules["100122"].attrib["level"], "3")
         self.assertEqual(rules["100160"].attrib["level"], "12")
         self.assertEqual(rules["100122"].findtext("field[@name='event_type']"), r"^identity\.account_hijacked$")
         self.assertEqual(rules["100160"].findtext("field[@name='event_type']"), r"^network\.ip_watchlist_match$")
+        self.assertEqual(rules["100181"].findtext("field[@name='event_type']"), r"^host\.system_health$")
+        self.assertEqual(rules["100182"].findtext("field[@name='event_type']"), r"^host\.authentication$")
 
 
 if __name__ == "__main__":
