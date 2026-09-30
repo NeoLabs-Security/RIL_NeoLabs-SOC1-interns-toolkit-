@@ -14,6 +14,7 @@ Detect and document authentication activity for the 15 synthetic arena accounts,
 - Confirm Wazuh telemetry is fresh before treating an empty result as “no activity.”
 - Use UTC and the exact account ID `syn-credential-storm-pod-01-01` through `-15`.
 - Create an evidence ledger copy for your shift. Never overwrite the repository template.
+- For a direct-IP arena, run `bash start-neolabs-soc.sh arena` and enter the public-IP URL, private telemetry code and facilitator-issued `arena-ca.crt` path when prompted. The launcher verifies and privately stages the certificate before Wazuh starts.
 
 ## Triage loop
 
@@ -34,6 +35,8 @@ Detect and document authentication activity for the 15 synthetic arena accounts,
 | No trustworthy telemetry | Run health checks and escalate | unclaimed |
 
 A screenshot alone is not SOC ground truth. The facilitator reconciles Red screenshots with server events and the Blue ledger.
+
+Authentication successes, failures, repeated failures and confirmed hijacks are intentionally indexed at informational level 3. They remain visible and searchable but do not become prominent security alerts. Rule `100160`, a request from an exact locally watched IP, remains the Week 3 level-12 alert.
 
 ## Useful Wazuh fields
 
