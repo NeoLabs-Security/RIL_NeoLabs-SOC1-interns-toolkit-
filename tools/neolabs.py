@@ -111,9 +111,9 @@ def validate_arena_url(value: str) -> str:
     return urllib.parse.urlunsplit(("https", parsed.netloc, "", "", "")).rstrip("/")
 
 
-def ssl_context() -> ssl.SSLContext:
+def ssl_context(ca_file_override: Path | None = None) -> ssl.SSLContext:
     context = ssl.create_default_context()
-    ca_file = os.environ.get("NEOLABS_CA_FILE", "").strip()
+    ca_file = str(ca_file_override) if ca_file_override else os.environ.get("NEOLABS_CA_FILE", "").strip()
     if ca_file:
         path = Path(ca_file).expanduser()
         if not path.is_file():
@@ -361,7 +361,7 @@ def read_arena_session() -> dict[str, Any] | None:
     return value
 
 
-def verify_arena_telemetry(arena_url: str, token: str) -> None:
+def verify_arena_telemetry(arena_url: str, token: str, ca_file: Path | None = None) -> None:
     endpoint = f"{arena_url}/api/internal/arena/telemetry?limit=1"
     request = urllib.request.Request(
         endpoint,
@@ -374,7 +374,7 @@ def verify_arena_telemetry(arena_url: str, token: str) -> None:
         },
     )
     try:
-        with urllib.request.urlopen(request, context=ssl_context(), timeout=25) as response:
+        with urllib.request.urlopen(request, context=ssl_context(ca_file), timeout=25) as response:
             response.read(1024 * 1024 + 1)
             pod = response.headers.get("X-VCC-Pod-ID", "")
             scenario = response.headers.get("X-VCC-Scenario-ID", "")
@@ -405,7 +405,21 @@ def do_arena_join(args: argparse.Namespace) -> None:
     token = getpass.getpass("Blue telemetry access code: ").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{64}", token):
         fail("Blue telemetry access code must be the 64-character code issued privately by the facilitator")
-    verify_arena_telemetry(arena_url, token)
+    ca_file: Path | None = None
+    ca_input = getattr(args, "ca_file", None)
+    if ca_input is None:
+        ca_input = input(
+            "Arena CA certificate path (blank only when the server uses a public certificate): "
+        ).strip()
+    if ca_input:
+        ca_file = Path(ca_input).expanduser().resolve()
+        if not ca_file.is_file():
+            fail(f"arena CA certificate does not exist: {ca_file}")
+        try:
+            ssl.create_default_context(cafile=str(ca_file))
+        except (OSError, ssl.SSLError):
+            fail("arena CA certificate is not a readable PEM certificate")
+    verify_arena_telemetry(arena_url, token, ca_file)
 
     secret_dir = stack / "secrets" / "vcc"
     state_dir = stack / "state"
@@ -413,6 +427,11 @@ def do_arena_join(args: argparse.Namespace) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     atomic_write(secret_dir / "arena-token", token + "\n")
     atomic_write(secret_dir / "installation-id", installation_id() + "\n")
+    staged_ca = secret_dir / "arena-ca.crt"
+    if ca_file:
+        atomic_write(staged_ca, ca_file.read_text(encoding="utf-8").rstrip() + "\n")
+    else:
+        staged_ca.unlink(missing_ok=True)
     atomic_write(state_dir / "assigned-pod", "pod-01\n")
     atomic_write(state_dir / "collector-scope", "arena:w03-credential-storm\n")
     previous_endpoint = read_simple_env(env_path, "VCC_TELEMETRY_ENDPOINT")
@@ -425,9 +444,12 @@ def do_arena_join(args: argparse.Namespace) -> None:
         "pod_id": "pod-01",
         "joined_at": utc_now(),
         "previous_telemetry_endpoint": previous_endpoint,
+        "custom_ca": bool(ca_file),
     }, indent=2, sort_keys=True) + "\n")
     stage_collector_inputs()
     print("✓ Week 3 Blue telemetry access verified and staged.")
+    if ca_file:
+        print("✓ The facilitator-issued arena CA certificate was verified and stored privately.")
     print("✓ The local collector will poll live arena events every 5 seconds.")
 
 
@@ -888,6 +910,7 @@ def build_parser() -> argparse.ArgumentParser:
     arena_sub = arena.add_subparsers(dest="arena_command", required=True)
     arena_join = arena_sub.add_parser("join", help="verify and stage facilitator-issued live arena telemetry access")
     arena_join.add_argument("--url", default=None, help="facilitator-issued HTTPS arena URL; prompts when omitted")
+    arena_join.add_argument("--ca-file", default=None, help="facilitator-issued PEM certificate for a direct-IP/self-signed arena")
     arena_join.set_defaults(func=do_arena_join)
     arena_status = arena_sub.add_parser("status", help="show the local Week 3 arena connection")
     arena_status.set_defaults(func=do_arena_status)
