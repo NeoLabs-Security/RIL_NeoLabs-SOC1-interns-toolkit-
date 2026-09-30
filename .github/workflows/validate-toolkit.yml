@@ -142,7 +142,18 @@ jobs:
               if child in windows_cmd: raise SystemExit('Windows CMD bypasses runtime authority: ' + child)
 
           saved_template = Path('wazuh-stack/dashboard/neolabs-saved-objects.ndjson.template')
-          expected = {'neolabs-vcc-alerts':'index-pattern','neolabs-night-watch-search':'search','neolabs-telemetry-health-search':'search','neolabs-night-watch':'dashboard','neolabs-telemetry-health':'dashboard'}
+          expected = {
+              'neolabs-vcc-alerts':'index-pattern',
+              'neolabs-night-watch-search':'search',
+              'neolabs-telemetry-health-search':'search',
+              'neolabs-week3-network-search':'search',
+              'neolabs-week3-identity-search':'search',
+              'neolabs-week3-host-search':'search',
+              'neolabs-week3-watchlist-search':'search',
+              'neolabs-night-watch':'dashboard',
+              'neolabs-telemetry-health':'dashboard',
+              'neolabs-week3-arena':'dashboard',
+          }
           seen = {}
           for raw in saved_template.read_text(encoding='utf-8').splitlines():
               if not raw.strip(): continue

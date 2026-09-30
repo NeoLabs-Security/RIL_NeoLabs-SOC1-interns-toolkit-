@@ -56,8 +56,13 @@ required = {
     'neolabs-vcc-alerts': 'index-pattern',
     'neolabs-night-watch-search': 'search',
     'neolabs-telemetry-health-search': 'search',
+    'neolabs-week3-network-search': 'search',
+    'neolabs-week3-identity-search': 'search',
+    'neolabs-week3-host-search': 'search',
+    'neolabs-week3-watchlist-search': 'search',
     'neolabs-night-watch': 'dashboard',
     'neolabs-telemetry-health': 'dashboard',
+    'neolabs-week3-arena': 'dashboard',
 }
 seen = {}
 for number, raw in enumerate(open(sys.argv[1], encoding='utf-8'), 1):
@@ -90,12 +95,13 @@ try:
     value=json.load(open(sys.argv[1], encoding='utf-8'))
 except Exception as exc:
     raise SystemExit(f'invalid import response: {exc}')
-if value.get('success') is not True or int(value.get('successCount', 0)) < 5:
+if value.get('success') is not True or int(value.get('successCount', 0)) < 10:
     raise SystemExit(f'saved-object import incomplete: {value!r}')
 PY
 
 printf '%s\n' "${pod}" > "${STATE_FILE}"
 chmod 600 "${STATE_FILE}" || true
-printf '[OK] NeoLabs Night Watch and Telemetry Health saved objects are ready for %s.\n' "${pod}"
+printf '[OK] NeoLabs Night Watch, Telemetry Health and Week 3 Arena saved objects are ready for %s.\n' "${pod}"
 printf '[OK] Night Watch dashboard: https://127.0.0.1:%s/app/dashboards#/view/neolabs-night-watch\n' "${DASHBOARD_PORT}"
 printf '[OK] Telemetry Health dashboard: https://127.0.0.1:%s/app/dashboards#/view/neolabs-telemetry-health\n' "${DASHBOARD_PORT}"
+printf '[OK] Week 3 Arena dashboard: https://127.0.0.1:%s/app/dashboards#/view/neolabs-week3-arena\n' "${DASHBOARD_PORT}"

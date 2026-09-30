@@ -133,7 +133,11 @@ dashboard_bind="${WAZUH_DASHBOARD_BIND:-127.0.0.1}"
 dashboard_url="https://127.0.0.1:${dashboard_port}"
 open_url="$dashboard_url"
 if [[ -f wazuh-stack/state/dashboard-objects.ready ]]; then
-  open_url="${dashboard_url}/app/dashboards#/view/neolabs-night-watch"
+  if [[ -f "${HOME}/.neolabs/soc/arena-session.json" ]]; then
+    open_url="${dashboard_url}/app/dashboards#/view/neolabs-week3-arena"
+  else
+    open_url="${dashboard_url}/app/dashboards#/view/neolabs-night-watch"
+  fi
 fi
 
 linux_private_ip() {
