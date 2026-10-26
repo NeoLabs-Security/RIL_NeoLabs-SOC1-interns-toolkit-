@@ -114,6 +114,26 @@
     <group>telemetry_health,visibility_gap,</group>
   </rule>
 
+  <!-- Week 4 normal checks and expected denials remain searchable at baseline
+       severity. Only independently evidenced policy-violating allows escalate. -->
+  <rule id="100141" level="3">
+    <if_sid>100100</if_sid>
+    <field name="scenario_id" type="pcre2">^w04-broken-gate$</field>
+    <field name="event_type" type="pcre2">^authorization\.check$</field>
+    <description>NeoLabs VCC: Course authorization check for $(synthetic_user_id), resource $(metadata.resource_id), outcome $(outcome).</description>
+    <group>authorization_audit,w04_broken_gate,</group>
+  </rule>
+
+  <rule id="100142" level="10">
+    <if_sid>100141</if_sid>
+    <field name="metadata.actual_decision" type="pcre2">^allow$</field>
+    <field name="metadata.policy_expected_decision" type="pcre2">^deny$</field>
+    <field name="metadata.http_status" type="pcre2">^200$</field>
+    <field name="outcome" type="pcre2">^policy_violation$</field>
+    <description>NeoLabs VCC: Course access allowed despite expected denial for $(synthetic_user_id), resource $(metadata.resource_id), request $(request_id).</description>
+    <group>authorization_policy_violation,access_control,w04_broken_gate,</group>
+  </rule>
+
   <rule id="100160" level="12">
     <if_sid>100100</if_sid>
     <field name="event_type" type="pcre2">^network\.ip_watchlist_match$</field>

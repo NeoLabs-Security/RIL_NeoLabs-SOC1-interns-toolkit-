@@ -1,5 +1,12 @@
 # Start Here — SOC Analyst Level 1
 
+## Week 4 entry point (staged)
+
+When your server-issued assignment opens `w04-broken-gate`, use the normal platform
+launcher below and then the [Week 4 investigation guide](docs/week-04/authorization-investigation.md).
+That guide supplies pod/scenario searches, rule IDs and evidence requirements.
+Healthy containers alone do not establish current-scenario READY.
+
 Welcome to the **NeoLabs × RIL SOC Level 1 Intern Toolkit**. Official graded submissions belong in `RIL_NeoLabs-Intern-Assignments`.
 
 For the current architecture/runtime summary, read [`PROGRAMME_CURRENT_STATE.md`](PROGRAMME_CURRENT_STATE.md).

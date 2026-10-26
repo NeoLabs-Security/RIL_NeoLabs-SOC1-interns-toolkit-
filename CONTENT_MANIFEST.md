@@ -4,6 +4,7 @@ This file tracks the authoritative student-facing material and operational tooli
 
 | Material | Current scope | Repository/programme status |
 |---|---|---|
+| Week 4 Broken Gate authorization investigation | `docs/week-04/authorization-investigation.md`; rules 100141/100142 extend existing pod telemetry; pipeline verifier probes both rules and queries Week 4 rule IDs; root start/task links audited | Staged; guide 1.0.1, reviewed 2026-10-26; live/indexer validation pending |
 | Local Wazuh telemetry import | Authenticated local NDJSON ingestion, pending/verified ledger, representative search verification; Windows/WSL and Linux | Current; reviewed 2026-09-10 |
 | Local telemetry analysis | `docs/local-telemetry-analysis.md`; bounded read-only NDJSON/gzip inspection and validated fallback download without Wazuh | Current; version 1, reviewed 2026-09-10 |
 | Log Literacy and SIEM Foundations | log purpose, event fields, SIEM pipelines, normalisation, data quality and investigation method | Current |
