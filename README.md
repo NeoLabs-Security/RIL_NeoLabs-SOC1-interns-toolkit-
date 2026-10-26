@@ -1,5 +1,14 @@
 # NeoLabs SOC Level 1 Intern Toolkit
 
+## Week 4 entry point (staged)
+
+For a current assigned `w04-broken-gate` release, start from this repository root:
+Linux/Ubuntu uses `bash start-neolabs-soc.sh`; supported Windows uses
+`START-NEOLABS-SOC.cmd`. Wait for current-scenario READY, then follow the
+[Week 4 authorization investigation](docs/week-04/authorization-investigation.md)
+for scoped searches, event correlation and incident reporting. The starter remains
+the existing toolkit; Week 4 is not yet published by these instructions.
+
 The **NeoLabs × RIL SOC Level 1 Intern Toolkit** is the student-side Learn + Connect + Operate repository for authorised SOC training through the VCC Security Lab.
 
 # Start here — use only the command for your platform

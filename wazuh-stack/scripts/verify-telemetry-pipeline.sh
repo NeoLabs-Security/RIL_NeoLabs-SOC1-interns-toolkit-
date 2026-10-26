@@ -84,7 +84,7 @@ for raw in path.read_text(encoding='utf-8', errors='replace').splitlines()[-5000
     if event.get('synthetic') is not True or event.get('pod_id') != pod: continue
     payload=event.get('payload') if isinstance(event.get('payload'),dict) else {}
     event_scenario=event.get('scenario_id') or payload.get('scenario_id')
-    if scenario and event_scenario not in (scenario, None, ''): continue
+    if scenario and event_scenario != scenario: continue
     if event_id and event.get('event_id') != event_id: continue
     raise SystemExit(0)
 raise SystemExit(1)
@@ -92,10 +92,31 @@ PY
 }
 
 rules_are_loaded() {
-  local pod="$1" output
+  local pod="$1" scenario="$2" output expected probe
   output="$(printf '%s\n' "{\"schema_version\":\"1.0\",\"event_id\":\"pipeline-probe\",\"event_time\":\"2026-01-01T00:00:00Z\",\"pod_id\":\"${pod}\",\"scenario_id\":\"pipeline-probe\",\"event_type\":\"authentication.login\",\"event_category\":\"authentication\",\"event_action\":\"login\",\"synthetic\":true,\"outcome\":\"success\",\"synthetic_user_id\":\"pipeline-probe\",\"source_ip\":\"127.0.0.1\"}" \
     | docker compose --env-file .env exec -T wazuh.manager /var/ossec/bin/wazuh-logtest 2>&1 || true)"
-  grep -Eq "id: '100120'|Rule id: 100120|100120" <<<"${output}"
+  grep -Eq "id: '100120'|Rule id: 100120|100120" <<<"${output}" || return 1
+  if [[ "$scenario" == w04-broken-gate ]]; then
+    # Exercise both the normal denial and successful policy-violation branches.
+    # logtest checks the engine only; real collector/index evidence is checked below.
+    for expected in 100141 100142; do
+      probe="$(python3 - "$pod" "$expected" <<'PY'
+import json,sys
+pod,rule=sys.argv[1:]
+violation=rule=='100142'
+print(json.dumps({'schema_version':'1.0','event_id':'pipeline-probe','event_time':'2026-01-01T00:00:00Z',
+ 'pod_id':pod,'scenario_id':'w04-broken-gate','event_type':'authorization.check',
+ 'synthetic':True,'outcome':'policy_violation' if violation else 'denied',
+ 'synthetic_user_id':'pipeline-probe','request_id':'pipeline-probe',
+ 'metadata':{'resource_id':'pipeline-probe','actual_decision':'allow' if violation else 'deny',
+             'policy_expected_decision':'deny','http_status':200 if violation else 403}}))
+PY
+)"
+      output="$(printf '%s\n' "$probe" | docker compose --env-file .env exec -T wazuh.manager /var/ossec/bin/wazuh-logtest 2>&1 || true)"
+      grep -Eq "id: '${expected}'|Rule id: ${expected}([^0-9]|$)" <<<"${output}" || return 1
+    done
+  fi
+  return 0
 }
 
 indexed_hits() {
@@ -105,7 +126,8 @@ import json,sys
 pod,scenario,event_id=sys.argv[1:4]
 filters=[
     {'match_phrase': {'data.pod_id': pod}},
-    {'terms': {'rule.id': ['100100','100110','100111','100112','100120','100121','100130','100140','100150']}},
+    {'terms': {'rule.id': ['100141','100142'] if scenario=='w04-broken-gate' else
+        ['100100','100110','100111','100112','100120','100121','100130','100140','100141','100142','100150']}},
 ]
 if scenario:
     # Older replay archives wrap the canonical VCC event in `payload`; LIVE events
@@ -144,7 +166,7 @@ check_once() {
     service_is_healthy "${service}" || { printf '[WAIT] %s is not healthy yet.\n' "${service}" >&2; return 1; }
   done
 
-  rules_are_loaded "${pod}" || { printf '[FAIL] NeoLabs VCC custom rules are not active in wazuh-analysisd.\n' >&2; return 2; }
+  rules_are_loaded "${pod}" "${scenario}" || { printf '[FAIL] NeoLabs VCC custom rules are not active in wazuh-analysisd.\n' >&2; return 2; }
 
   scope="pod=${pod} scenario=${scenario:-any}"
   [[ -z "${REQUESTED_EVENT_ID}" ]] || scope+=" event_id=${REQUESTED_EVENT_ID}"
