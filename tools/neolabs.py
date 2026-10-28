@@ -113,7 +113,7 @@ def validate_arena_url(value: str) -> str:
 
 def ssl_context(ca_file_override: Path | None = None) -> ssl.SSLContext:
     context = ssl.create_default_context()
-    ca_file = str(ca_file_override) if ca_file_override else os.environ.get("NEOLABS_CA_FILE", "").strip()
+    ca_file = str(ca_file_override) if ca_file_override else (os.environ.get("NEOLABS_CA_FILE", "").strip() or str(Path(__file__).resolve().parents[1] / "certs" / "neolabs-w04-ca.crt"))
     if ca_file:
         path = Path(ca_file).expanduser()
         if not path.is_file():
@@ -285,7 +285,7 @@ def student_is_ready(manifest: dict[str, Any]) -> bool:
 
 
 def do_login(args: argparse.Namespace) -> None:
-    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "")
+    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "https://184.198.87.161:18443")
     try: base_url, discovery_url = resolve_gateway(configured, HOME_STATE)
     except ValueError as exc: fail(str(exc))
     base_url = validate_base_url(base_url)
