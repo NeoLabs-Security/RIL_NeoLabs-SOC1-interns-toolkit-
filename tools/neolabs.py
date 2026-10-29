@@ -285,7 +285,7 @@ def student_is_ready(manifest: dict[str, Any]) -> bool:
 
 
 def do_login(args: argparse.Namespace) -> None:
-    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "https://184.198.87.161:18443")
+    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "https://16.16.110.32:18443")
     try: base_url, discovery_url = resolve_gateway(configured, HOME_STATE)
     except ValueError as exc: fail(str(exc))
     base_url = validate_base_url(base_url)
