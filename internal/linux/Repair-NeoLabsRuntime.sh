@@ -312,6 +312,7 @@ ensure_docker_engine() {
       run_root groupadd -f docker
       run_root usermod -aG docker "$USER"
       warn "Docker group membership was repaired. The main launcher will refresh it automatically for this run when possible."
+      warn "New SSH shells will inherit the docker group. For interactive Docker commands, reconnect after this run or use newgrp docker."
     fi
   fi
 }
