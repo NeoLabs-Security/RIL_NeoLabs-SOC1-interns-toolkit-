@@ -134,7 +134,10 @@ def exchange(
             "User-Agent": "NeoLabs-SOC-Enrolment-Client/0.1.0",
         },
     )
-    context = ssl.create_default_context()
+    ca_file = Path(__file__).resolve().parents[2] / "certs" / "neolabs-w04-ca.crt"
+    if not ca_file.is_file():
+        fail("Missing trusted NeoLabs SOC enrolment CA certificate")
+    context = ssl.create_default_context(cafile=str(ca_file))
     try:
         with urllib.request.urlopen(request, context=context, timeout=30) as response:
             body = response.read(1024 * 1024 + 1)
