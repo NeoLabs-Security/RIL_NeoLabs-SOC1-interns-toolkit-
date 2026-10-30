@@ -43,7 +43,7 @@ if [[ "${lab_state}" == REPLAY || "${lab_state}" == CLOUD_LIVE || "${lab_state}"
   else
     pass "2/7 VCC telemetry surface — ${lab_state}; server authorisation is active for ${pod}."
   fi
-elif [[ "${lab_state}" == LIVE ]]; then
+elif [[ "${lab_state}" == LIVE || ( "${lab_state}" == STUDENT_READY && "${NEOLABS_DOCTOR_RUNTIME_MODE:-LIVE}" == LIVE ) ]]; then
   if service_healthy vcc.telemetry.collector; then
     pass "2/7 VCC telemetry surface — LIVE collector is healthy for the server-issued ${pod} scope."
   else
