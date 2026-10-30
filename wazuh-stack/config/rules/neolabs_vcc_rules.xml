@@ -13,7 +13,7 @@
     security finding. More specific child rules below raise the severity.
   -->
   <rule id="100100" level="3">
-    <decoded_as>json</decoded_as>
+    <if_sid>86600</if_sid>
     <field name="synthetic" type="pcre2">^true$</field>
     <field name="schema_version" type="pcre2">^1\.</field>
     <field name="pod_id" type="pcre2">^pod-[0-9]{2}$</field>
