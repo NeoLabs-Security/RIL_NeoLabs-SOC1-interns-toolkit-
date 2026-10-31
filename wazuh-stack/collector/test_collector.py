@@ -85,7 +85,7 @@ class CollectorValidationTests(unittest.TestCase):
     def test_poll_url_never_adds_a_pod_selector(self) -> None:
         url = self.collector.build_url("cursor-123")
         self.assertIn("cursor=cursor-123", url)
-        self.assertIn("limit=1000", url)
+        self.assertIn("limit=500", url)
         self.assertNotIn("pod", url.lower())
 
     def test_exact_watched_ip_creates_a_deterministic_alert_event(self) -> None:
