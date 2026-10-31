@@ -781,11 +781,11 @@ def do_connect(_: argparse.Namespace) -> None:
     if manifest.get("runtime_mode") == "offline-fallback":
         replay_soc(session, manifest)
         return
-    lab_state = str(manifest.get("lab_state") or "LIVE")
-    if lab_state == "LIVE":
+    runtime_mode = str(manifest.get("runtime_mode") or "").upper()
+    if runtime_mode == "LIVE":
         connect_soc_live(session, manifest)
         return
-    if lab_state in {"REPLAY", "CLOUD_LIVE", "ENDPOINT_LIVE"}:
+    if runtime_mode in {"REPLAY", "CLOUD_LIVE", "ENDPOINT_LIVE"}:
         replay_soc(session, manifest)
         return
     fail("no SOC learning surface is currently active; check the scheduled live/replay window")

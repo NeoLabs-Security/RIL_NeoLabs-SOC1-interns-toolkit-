@@ -43,7 +43,7 @@ if [[ "${lab_state}" == REPLAY || "${lab_state}" == CLOUD_LIVE || "${lab_state}"
   else
     pass "2/7 VCC telemetry surface — ${lab_state}; server authorisation is active for ${pod}."
   fi
-elif [[ "${lab_state}" == LIVE ]]; then
+elif [[ "${lab_state}" == LIVE || ( "${lab_state}" == STUDENT_READY && "${NEOLABS_DOCTOR_RUNTIME_MODE:-LIVE}" == LIVE ) ]]; then
   if service_healthy vcc.telemetry.collector; then
     pass "2/7 VCC telemetry surface — LIVE collector is healthy for the server-issued ${pod} scope."
   else
@@ -105,7 +105,7 @@ if service_healthy wazuh.indexer; then
   cluster_status="$(printf '%s' "${cluster}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("status","unknown"))
 except Exception: print("unknown")')"
-  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"match_phrase\":{\"data.scenario_id\":\"${scenario}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
+  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"match_phrase\":{\"data.scenario_id\":\"${scenario}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100141\",\"100142\",\"100150\"]}}]}}}"
   indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"
   hits="$(printf '%s' "${indexed:-{}}" | python3 -c 'import json,sys
 try:

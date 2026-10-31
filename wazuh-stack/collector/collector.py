@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
-MAX_EVENTS_PER_RESPONSE = 1000
+MAX_EVENTS_PER_RESPONSE = 500
 REQUIRED_EVENT_FIELDS = {
     "schema_version",
     "event_id",
