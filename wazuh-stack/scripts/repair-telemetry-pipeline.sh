@@ -50,7 +50,7 @@ case "${lab_state}" in
       exit 1
     fi
     ;;
-  LIVE)
+  LIVE|STUDENT_READY)
     printf '[repair] Live mode uses the mTLS collector; waiting for its next pod-scoped poll.\n'
     ;;
   *)
