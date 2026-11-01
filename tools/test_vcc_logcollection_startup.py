@@ -67,14 +67,30 @@ class SocVccStartupRecoveryTests(unittest.TestCase):
         self.assertIn("<only-future-events>no</only-future-events>", prepare)
         self.assertIn("ensure-vcc-logcollection.py", ensure)
 
-    def test_prepares_shared_log_without_truncation_and_applies_change_on_restart(self):
+    def test_prepares_shared_log_without_truncation_and_recreates_on_config_drift(self):
         volume = VOLUME.read_text()
         runtime = RUNTIME.read_text()
         self.assertIn("if [ ! -e /data/vcc-events.ndjson ]; then", volume)
         self.assertIn(": > /data/vcc-events.ndjson", volume)
         self.assertIn('"$fingerprint" != "$previous_fingerprint"', runtime)
-        self.assertIn("docker compose --env-file .env restart wazuh.manager", runtime)
+        self.assertIn("! manager_vcc_input_current", runtime)
+        self.assertIn('record_manager_fingerprint "$fingerprint"', runtime)
+        self.assertIn("docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager", runtime)
+        self.assertIn("Active Wazuh ossec.conf still lacks", runtime)
+        self.assertNotIn("configuration changed; restarting only the manager", runtime)
         self.assertNotIn("docker volume rm", volume)
+
+    def test_config_fingerprint_is_written_only_after_active_config_verification(self):
+        runtime = RUNTIME.read_text()
+        helper = runtime.split("record_manager_fingerprint() {", 1)[1].split("\\n}", 1)[0]
+        self.assertIn("manager_vcc_input_current", helper)
+        self.assertIn("return 1", helper)
+        self.assertIn("state/wazuh-runtime-fingerprint", helper)
+        # The recovery path must not mark desired host files as applied directly.
+        outside_helper = runtime.replace(
+            "record_manager_fingerprint() {" + helper + "\\n}", ""
+        )
+        self.assertNotIn('> state/wazuh-runtime-fingerprint', outside_helper)
 
 
 if __name__ == "__main__":
