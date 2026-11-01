@@ -101,6 +101,30 @@ runtime_fingerprint() {
   fi
 }
 
+# Wazuh's generated ossec.conf is mounted at /wazuh-config-mount, but the
+# daemon reads /var/ossec/etc/ossec.conf from the persistent wazuh_etc volume.
+# Restarting the Wazuh process is not proof that container initialization
+# recopied a changed bind-mounted file into that active location.
+manager_vcc_input_current() {
+  local block
+  block="$(docker compose --env-file .env exec -T wazuh.manager sh -c \
+    'grep -F -A 6 "<location>/var/ossec/logs/vcc/vcc-events.ndjson</location>" /var/ossec/etc/ossec.conf' \
+    2>/dev/null || true)"
+  [[ "$block" == *'<log_format>json</log_format>'* &&
+     "$block" == *'<only-future-events>no</only-future-events>'* ]]
+}
+
+# A remembered fingerprint must describe the configuration Wazuh is
+# actually using, not merely the desired files on the host.
+record_manager_fingerprint() {
+  local fingerprint="$1"
+  if ! manager_vcc_input_current; then
+    warn 'Active Wazuh ossec.conf still lacks the synthetic VCC backlog setting; refusing to mark this configuration applied.'
+    return 1
+  fi
+  printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+}
+
 save_diagnostics() {
   local reason="$1" stamp path
   mkdir -p state/runtime-diagnostics
@@ -171,27 +195,29 @@ recover_manager() {
   log 'Starting the Wazuh manager independently...'
   docker compose --env-file .env up -d --no-deps wazuh.manager
 
-  # "docker compose up -d" does not restart a running manager when its
-  # bind-mounted NeoLabs rules or generated ossec.conf change. An unchanged
-  # manager would keep processing the previous configuration indefinitely
-  # while the helper incorrectly records the *new* fingerprint as applied.
-  # Restart just this service once; never delete any named volume or reset
-  # collector cursors, Wazuh indexes, credentials, or server-side state.
-  if [[ "$before" == 'running/healthy' && -n "$previous_fingerprint" &&
-        "$fingerprint" != "$previous_fingerprint" ]]; then
-    log 'Generated Wazuh rules/logcollector configuration changed; restarting only the manager to apply it.'
-    docker compose --env-file .env restart wazuh.manager
+  # Recreate only the manager container if a generated configuration changed
+  # OR the active persisted ossec.conf does not match. Unlike a plain restart,
+  # recreation reruns the Wazuh image's config-copy initialization.
+  # Named volumes, API credentials, alerts, collector state and indexes survive.
+  if [[ "$before" == 'running/healthy' ]] &&
+     { [[ "$fingerprint" != "$previous_fingerprint" ]] || ! manager_vcc_input_current; }; then
+    log 'Wazuh manager configuration changed or was not activated; recreating only its container (preserving volumes).'
+    docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
     if wait_manager_healthy 180; then
-      printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-      ok 'Wazuh manager applied updated rules/logcollector configuration.'
-      return 0
+      if record_manager_fingerprint "$fingerprint"; then
+        ok 'Wazuh manager is healthy and its active VCC configuration matches the generated configuration.'
+        return 0
+      fi
+      save_diagnostics 'Manager healthy after recreation, but active VCC ossec.conf differs from the generated file.'
+      return 2
     fi
-    warn 'Wazuh manager did not become healthy after applying its updated configuration.'
+    save_diagnostics 'Manager failed to become healthy after applying generated configuration by container recreation.'
+    return 2
   fi
 
   if [[ "$before" == 'running/healthy' && -n "$previous_fingerprint" && "$fingerprint" == "$previous_fingerprint" ]]; then
-    if wait_manager_healthy 30; then
-      ok 'Existing Wazuh manager is healthy and current; reusing it without restart.'
+    if wait_manager_healthy 30 && manager_vcc_input_current; then
+      ok 'Existing Wazuh manager is healthy and its active VCC configuration is current; reusing it without restart.'
       return 0
     else
       rc=$?
@@ -200,9 +226,21 @@ recover_manager() {
   fi
 
   if wait_manager_healthy 60; then
-    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager and API are healthy.'
-    return 0
+    if record_manager_fingerprint "$fingerprint"; then
+      ok 'Wazuh manager/API and its active VCC telemetry input are healthy.'
+      return 0
+    fi
+    # An initially-created container can also inherit a stale ossec.conf
+    # from its persistent Wazuh configuration volume. Recreate once to run
+    # the image's configuration-copy initialization, never delete the volume.
+    warn 'Manager healthy but its active VCC input is stale; recreating only the manager container to resync the mounted configuration.'
+    docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
+    if wait_manager_healthy 180 && record_manager_fingerprint "$fingerprint"; then
+      ok 'Wazuh manager configuration synchronized after container recreation.'
+      return 0
+    fi
+    save_diagnostics 'Manager active VCC configuration did not match the mounted input after container recreation.'
+    return 2
   else
     rc=$?
     if (( rc == 2 )); then save_diagnostics 'Deterministic Wazuh manager configuration failure after start.'; return 2; fi
@@ -211,7 +249,7 @@ recover_manager() {
   warn 'Manager is not healthy yet. Restarting it once.'
   docker compose --env-file .env restart wazuh.manager >/dev/null 2>&1 || true
   if wait_manager_healthy 180; then
-    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+    record_manager_fingerprint "$fingerprint" || return 2
     ok 'Wazuh manager/API recovered after restart.'
     return 0
   else
@@ -223,7 +261,7 @@ recover_manager() {
   warn 'Manager is still unhealthy. Recreating only the manager container; indexer data and pod telemetry are preserved.'
   docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
   if wait_manager_healthy 180; then
-    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+    record_manager_fingerprint "$fingerprint" || return 2
     ok 'Wazuh manager/API recovered after container recreation.'
     return 0
   else
@@ -238,7 +276,7 @@ recover_manager() {
   docker volume rm "${COMPOSE_PROJECT_NAME}_wazuh_etc" >/dev/null 2>&1 || true
   docker compose --env-file .env up -d --no-deps wazuh.manager
   if wait_manager_healthy 240; then
-    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+    record_manager_fingerprint "$fingerprint" || return 2
     ok 'Wazuh manager/API recovered after rebuilding its local configuration volume.'
     return 0
   else
