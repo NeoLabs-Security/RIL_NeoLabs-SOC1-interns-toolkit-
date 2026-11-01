@@ -1,5 +1,8 @@
 # NeoLabs SOC Level 1 Intern Toolkit
 
+**Week 4 student quickstart:** [SOC runbook (central dashboard, rule 100141/100142, evidence and submissions)](docs/week-04/STUDENT_RUNBOOK.md). The toolkit currently runs a local stack; mentors must separately verify central Wazuh ingestion before calling the shared dashboard ready.
+
+
 ## Week 4 entry point (staged)
 
 For a current assigned `w04-broken-gate` release, start from this repository root:
