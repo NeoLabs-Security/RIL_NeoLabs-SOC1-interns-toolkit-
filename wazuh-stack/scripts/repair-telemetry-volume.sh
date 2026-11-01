@@ -27,6 +27,14 @@ docker compose --env-file .env run --rm --no-deps \
     chmod 0755 /data
     find /data -type d -exec chmod 0755 {} +
     find /data -type f -exec chmod 0644 {} +
+    # Manager starts independently of collector; ensure its localfile exists
+    # beforehand. This creates only a missing file, never truncates existing
+    # evidence or changes any collector cursors.
+    if [ ! -e /data/vcc-events.ndjson ]; then
+      : > /data/vcc-events.ndjson
+      chown "$uid:$gid" /data/vcc-events.ndjson
+      chmod 0644 /data/vcc-events.ndjson
+    fi
   ' >/dev/null
 
 # Prove the actual service identity can write the volume. This second helper uses
