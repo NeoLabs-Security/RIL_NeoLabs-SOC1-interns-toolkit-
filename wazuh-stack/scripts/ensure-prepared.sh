@@ -55,6 +55,11 @@ for path in "${required_generated_paths[@]}"; do
   [[ -s "$path" ]] || fail "Wazuh preparation did not produce required file: $path"
 done
 
+# Existing installations must get the same synthetic VCC startup-replay policy
+# as fresh installations without regenerating the local TLS/password set.
+python3 ./scripts/ensure-vcc-logcollection.py \
+  generated/config/wazuh_cluster/wazuh_manager.conf || fail 'VCC logcollector configuration could not be safely reconciled.'
+
 # Older launcher iterations may have valid certificates but stale generated
 # OpenSearch/dashboard credentials. Re-render them from the current private .env
 # on every startup; expensive bcrypt work is fingerprinted and only repeats when

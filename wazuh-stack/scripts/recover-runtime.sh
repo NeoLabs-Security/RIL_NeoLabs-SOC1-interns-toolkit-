@@ -171,6 +171,24 @@ recover_manager() {
   log 'Starting the Wazuh manager independently...'
   docker compose --env-file .env up -d --no-deps wazuh.manager
 
+  # "docker compose up -d" does not restart a running manager when its
+  # bind-mounted NeoLabs rules or generated ossec.conf change. An unchanged
+  # manager would keep processing the previous configuration indefinitely
+  # while the helper incorrectly records the *new* fingerprint as applied.
+  # Restart just this service once; never delete any named volume or reset
+  # collector cursors, Wazuh indexes, credentials, or server-side state.
+  if [[ "$before" == 'running/healthy' && -n "$previous_fingerprint" &&
+        "$fingerprint" != "$previous_fingerprint" ]]; then
+    log 'Generated Wazuh rules/logcollector configuration changed; restarting only the manager to apply it.'
+    docker compose --env-file .env restart wazuh.manager
+    if wait_manager_healthy 180; then
+      printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+      ok 'Wazuh manager applied updated rules/logcollector configuration.'
+      return 0
+    fi
+    warn 'Wazuh manager did not become healthy after applying its updated configuration.'
+  fi
+
   if [[ "$before" == 'running/healthy' && -n "$previous_fingerprint" && "$fingerprint" == "$previous_fingerprint" ]]; then
     if wait_manager_healthy 30; then
       ok 'Existing Wazuh manager is healthy and current; reusing it without restart.'

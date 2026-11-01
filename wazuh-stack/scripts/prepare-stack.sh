@@ -57,6 +57,8 @@ cat >> "$manager_config" <<'XML'
   <localfile>
     <location>/var/ossec/logs/vcc/vcc-events.ndjson</location>
     <log_format>json</log_format>
+    <!-- Training events may arrive before manager startup. Preserve them. -->
+    <only-future-events>no</only-future-events>
     <label key="neolabs.source">vcc-pod-telemetry</label>
   </localfile>
 </ossec_config>
