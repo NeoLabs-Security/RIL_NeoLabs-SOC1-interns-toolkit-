@@ -182,7 +182,7 @@ recover_manager() {
     log 'Generated Wazuh rules/logcollector configuration changed; restarting only the manager to apply it.'
     docker compose --env-file .env restart wazuh.manager
     if wait_manager_healthy 180; then
-      printf '%s\\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+      printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
       ok 'Wazuh manager applied updated rules/logcollector configuration.'
       return 0
     fi
