@@ -175,6 +175,23 @@ On Ubuntu/Debian first run it can install required base packages, Docker Engine,
 
 On later runs it detects the existing Wazuh installation/configuration and reuses it instead of reinstalling or deleting data.
 
+### Docker group access on fresh Ubuntu SSH sessions
+
+The first-run Linux launcher can grant the authorized Ubuntu account local
+Docker access. Linux does not retroactively update the supplementary groups of
+an **already running SSH shell**. You do **not** need to manually run
+`newgrp docker` for supported NeoLabs commands: `bash neolabs doctor`,
+`bash neolabs connect`, and the other Docker-dependent NeoLabs CLI commands
+now refresh the account's existing Docker group in a short-lived child process.
+They do not run the whole toolkit as root, change socket permissions, restart
+Docker or touch Wazuh volumes.
+
+For direct `docker compose` commands typed in the **original** SSH terminal,
+reconnect via SSH (preferred) or run `newgrp docker` once. The toolkit cannot
+permanently change the parent shell's groups from a child process. Only users
+authorized to administer the dedicated SOC host should join the Docker group,
+which has root-equivalent privileges.
+
 ---
 
 ## Temporary Offline Fallback exercise

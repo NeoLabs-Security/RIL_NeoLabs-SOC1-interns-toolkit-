@@ -38,6 +38,8 @@ jobs:
           bash internal/linux/Test-NeoLabsRuntime.sh --validate-only
           bash internal/linux/Repair-NeoLabsRuntime.sh --validate-only
           bash start-neolabs-soc.sh --validate-only
+          bash -n internal/linux/With-DockerAccess.sh
+          python3 -m unittest tools.test_docker_group_refresh -v
 
           python3 - <<'PY'
           from pathlib import Path
@@ -48,6 +50,12 @@ jobs:
 
           if 'internal/common/Start-NeoLabsSOC.sh' not in root:
               raise SystemExit('Linux root must delegate to shared SOC orchestrator')
+          docker_helper = Path('internal/linux/With-DockerAccess.sh').read_text(encoding='utf-8')
+          if 'With-DockerAccess.sh' not in cli or 'doctor|arena|disconnect' not in cli:
+              raise SystemExit('Native Linux root CLI must refresh stale Docker group for diagnostics')
+          for token in ('id -nG', 'sg docker -c', 'exec "$@"', 'NEOLABS_DOCKER_GROUP_REFRESHED'):
+              if token not in docker_helper:
+                  raise SystemExit('Docker group helper missing safe child refresh contract: ' + token)
           if 'internal/linux/Test-NeoLabsRuntime.sh' not in root or 'internal/linux/Repair-NeoLabsRuntime.sh' not in root:
               raise SystemExit('Linux root must positively test then repair native runtime')
           for token in ('install_docker_ubuntu_debian()', 'ensure_docker_access()', 'start_docker_service()'):

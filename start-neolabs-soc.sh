@@ -110,6 +110,7 @@ if ! bash internal/linux/Test-NeoLabsRuntime.sh; then
       fi
       if command -v sg >/dev/null 2>&1; then
         warn 'Refreshing docker-group membership for this launcher process.'
+        warn 'Your original SSH shell keeps its old groups. After this run, use bash neolabs doctor/connect for automatic group refresh; reconnect SSH to use raw docker commands without newgrp.'
         printf -v quoted_root '%q' "$ROOT_DIR"
         printf -v quoted_action '%q' "$ACTION"
         extra=''

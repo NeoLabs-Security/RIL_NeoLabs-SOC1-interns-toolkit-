@@ -25,4 +25,16 @@ else
   export NEOLABS_HOST_MODE=linux
 fi
 
+# Direct SOC CLI commands may be invoked from the original SSH shell after
+# first-run AutoFix grants Docker access. That parent shell retains its stale
+# groups; refresh only Docker-using NeoLabs commands in an authorized child.
+# The full Linux launcher already refreshes its own Docker-using process.
+case "${1:-}" in
+  connect|doctor|arena|disconnect|ip-blacklist|ip-watchlist)
+    if [[ "$NEOLABS_HOST_MODE" == linux ]]; then
+      exec bash internal/linux/With-DockerAccess.sh python3 -m tools.cli "$@"
+    fi
+    ;;
+esac
+
 exec python3 -m tools.cli "$@"
