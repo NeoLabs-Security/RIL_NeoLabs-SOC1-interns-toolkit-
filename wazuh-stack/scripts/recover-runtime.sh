@@ -122,7 +122,7 @@ record_manager_fingerprint() {
     warn 'Active Wazuh ossec.conf still lacks the synthetic VCC backlog setting; refusing to mark this configuration applied.'
     return 1
   fi
-  printf '%s\\n' "$fingerprint" > state/wazuh-runtime-fingerprint
+  printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
 }
 
 save_diagnostics() {
