@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-https://pg1wb0sklb.execute-api.us-east-1.amazonaws.com}"
+GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-https://13.53.110.120:18443}"
 ACTION="start"
 HOST_MODE="linux"
 NO_BROWSER=0
