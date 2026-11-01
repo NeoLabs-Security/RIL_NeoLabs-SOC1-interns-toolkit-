@@ -108,7 +108,7 @@ runtime_fingerprint() {
 manager_vcc_input_current() {
   local block
   block="$(docker compose --env-file .env exec -T wazuh.manager sh -c \
-    'sed -n "/<location>\\/var\\/ossec\\/logs\\/vcc\\/vcc-events.ndjson<\\/location>/,/<\\/localfile>/p" /var/ossec/etc/ossec.conf' \
+    'grep -F -A 6 "<location>/var/ossec/logs/vcc/vcc-events.ndjson</location>" /var/ossec/etc/ossec.conf' \
     2>/dev/null || true)"
   [[ "$block" == *'<log_format>json</log_format>'* &&
      "$block" == *'<only-future-events>no</only-future-events>'* ]]
@@ -226,9 +226,21 @@ recover_manager() {
   fi
 
   if wait_manager_healthy 60; then
-    printf '%s\n' "$fingerprint" > state/wazuh-runtime-fingerprint
-    ok 'Wazuh manager and API are healthy.'
-    return 0
+    if record_manager_fingerprint "$fingerprint"; then
+      ok 'Wazuh manager/API and its active VCC telemetry input are healthy.'
+      return 0
+    fi
+    # An initially-created container can also inherit a stale ossec.conf
+    # from its persistent Wazuh configuration volume. Recreate once to run
+    # the image's configuration-copy initialization, never delete the volume.
+    warn 'Manager healthy but its active VCC input is stale; recreating only the manager container to resync the mounted configuration.'
+    docker compose --env-file .env up -d --force-recreate --no-deps wazuh.manager
+    if wait_manager_healthy 180 && record_manager_fingerprint "$fingerprint"; then
+      ok 'Wazuh manager configuration synchronized after container recreation.'
+      return 0
+    fi
+    save_diagnostics 'Manager active VCC configuration did not match the mounted input after container recreation.'
+    return 2
   else
     rc=$?
     if (( rc == 2 )); then save_diagnostics 'Deterministic Wazuh manager configuration failure after start.'; return 2; fi
