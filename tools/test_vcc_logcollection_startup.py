@@ -82,13 +82,13 @@ class SocVccStartupRecoveryTests(unittest.TestCase):
 
     def test_config_fingerprint_is_written_only_after_active_config_verification(self):
         runtime = RUNTIME.read_text()
-        helper = runtime.split("record_manager_fingerprint() {", 1)[1].split("\\n}", 1)[0]
+        helper = runtime.split("record_manager_fingerprint() {", 1)[1].split("\n}", 1)[0]
         self.assertIn("manager_vcc_input_current", helper)
         self.assertIn("return 1", helper)
         self.assertIn("state/wazuh-runtime-fingerprint", helper)
         # The recovery path must not mark desired host files as applied directly.
         outside_helper = runtime.replace(
-            "record_manager_fingerprint() {" + helper + "\\n}", ""
+            "record_manager_fingerprint() {" + helper + "\n}", ""
         )
         self.assertNotIn('> state/wazuh-runtime-fingerprint', outside_helper)
 
