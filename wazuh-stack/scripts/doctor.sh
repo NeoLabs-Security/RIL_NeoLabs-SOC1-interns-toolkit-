@@ -84,7 +84,9 @@ else
 fi
 
 # 4/7 — Rule engine actually loads and matches the NeoLabs rules.
-rule_output="$(printf '%s\n' "{\"schema_version\":\"1.0\",\"event_id\":\"doctor-probe\",\"event_time\":\"2026-01-01T00:00:00Z\",\"pod_id\":\"${pod}\",\"event_type\":\"authentication\",\"synthetic\":true,\"outcome\":\"success\",\"user\":\"doctor-probe\",\"source_ip\":\"127.0.0.1\"}" | docker compose --env-file .env exec -T wazuh.manager /var/ossec/bin/wazuh-logtest 2>&1 || true)"
+# Parent Wazuh JSON rule 86600 requires timestamp and event_type. The old
+# probe omitted timestamp, producing a false failure for healthy custom rules.
+rule_output="$(printf '%s\n' "{\"schema_version\":\"1.0\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"event_id\":\"doctor-probe\",\"event_time\":\"2026-01-01T00:00:00Z\",\"pod_id\":\"${pod}\",\"event_type\":\"authentication.login\",\"synthetic\":true,\"outcome\":\"success\",\"synthetic_user_id\":\"doctor-probe\",\"source_ip\":\"127.0.0.1\"}" | docker compose --env-file .env exec -T wazuh.manager /var/ossec/bin/wazuh-logtest 2>&1 || true)"
 if grep -Eq "100120|Rule id: 100120|id: '100120'" <<<"${rule_output}"; then
   pass '4/7 Wazuh rule engine — NeoLabs authentication rule 100120 matched the synthetic probe.'
 else
@@ -105,7 +107,9 @@ if service_healthy wazuh.indexer; then
   cluster_status="$(printf '%s' "${cluster}" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("status","unknown"))
 except Exception: print("unknown")')"
-  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"match_phrase\":{\"data.scenario_id\":\"${scenario}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100141\",\"100142\",\"100150\"]}}]}}}"
+  # Count all NeoLabs alert classes, including baseline runtime-health events.
+  # Week 4 authorization rules remain strictly checked by verify-telemetry-pipeline.sh.
+  query="{\"size\":0,\"track_total_hits\":true,\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"match_phrase\":{\"data.scenario_id\":\"${scenario}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100141\",\"100142\",\"100122\",\"100150\",\"100160\",\"100170\",\"100180\",\"100181\",\"100182\",\"100183\",\"100184\"]}}]}}}"
   indexed="$(printf '%s' "${query}" | docker compose --env-file .env exec -T -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c 'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"
   hits="$(printf '%s' "${indexed:-{}}" | python3 -c 'import json,sys
 try:
@@ -113,6 +117,9 @@ try:
 except Exception: print(0)')"
   if [[ "${cluster_status}" =~ ^(green|yellow)$ && "${hits}" =~ ^[0-9]+$ ]] && (( hits > 0 )); then
     pass "6/7 Wazuh indexer — cluster=${cluster_status}; ${hits} NeoLabs alert(s) searchable for pod=${pod} scenario=${scenario}."
+    if [[ "${scenario}" == w04-broken-gate ]]; then
+      printf '[INFO] Stage 6 includes baseline/host alerts. Run verify-telemetry-pipeline.sh to require actual Week 4 authorization alerts (100141/100142).\n'
+    fi
   elif [[ "${cluster_status}" =~ ^(green|yellow)$ && "${raw_count:-0}" =~ ^[0-9]+$ ]] && (( ${raw_count:-0} == 0 )); then
     pass "6/7 Wazuh indexer — cluster=${cluster_status}; indexer is healthy while assigned-pod telemetry is still pending."
   else
