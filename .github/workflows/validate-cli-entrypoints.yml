@@ -63,6 +63,13 @@ jobs:
 
           if 'python3 -m tools.cli login' not in common or 'python3 -m tools.cli connect' not in common:
               raise SystemExit('Shared orchestrator must use module CLI entrypoints')
+          # Both first-run launcher and CLI must default to the same live broker.
+          core = Path('tools/neolabs.py').read_text(encoding='utf-8')
+          expected = 'https://13.53.110.120:18443'
+          if 'GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-' + expected + '}"' not in common:
+              raise SystemExit('Fresh Ubuntu launcher points to a different VCC broker')
+          if 'os.environ.get("NEOLABS_LAB_BASE_URL", "' + expected + '")' not in core:
+              raise SystemExit('SOC CLI default does not match launcher broker')
           if common.index('ensure-prepared.sh') > common.index('python3 -m tools.cli login'):
               raise SystemExit('Preparation/image downloads must precede login')
           if common.index('python3 -m tools.cli login') > common.index('python3 -m tools.cli connect'):
