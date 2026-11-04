@@ -259,8 +259,8 @@ def refresh(session: dict[str, Any]) -> dict[str, Any]:
     # configured, known VCC endpoint, preserving authenticated session and pod scope.
     # TLS is validated when refresh requests the new endpoint; persist on success.
     previous_endpoint = str(session.get("base_url", "")).rstrip("/")
-    if previous_endpoint == "https://16.16.110.32:18443" and not session.get("discovery_url"):
-        session["base_url"] = "https://13.53.110.120:18443"
+    if previous_endpoint in {"https://16.16.110.32:18443", "https://13.53.110.120:18443"} and not session.get("discovery_url"):
+        session["base_url"] = "https://16.192.188.181:18443"
     try:
         base_url, discovery_url = resolve_gateway(str(session.get("base_url", "")), HOME_STATE, str(session.get("deployment_channel", "ril-current")), session.get("discovery_url"))
     except ValueError as exc:
@@ -270,9 +270,9 @@ def refresh(session: dict[str, Any]) -> dict[str, Any]:
     if discovery_url: session["discovery_url"] = discovery_url
     result = request_json(base_url, "/api/v1/lab-access/manifest", token=str(session["session_token"]))
     # Keep an existing SOC enrolment handoff aligned with the verified broker URL.
-    if previous_endpoint == "https://16.16.110.32:18443" and base_url == "https://13.53.110.120:18443":
+    if previous_endpoint in {"https://16.16.110.32:18443", "https://13.53.110.120:18443"} and base_url == "https://16.192.188.181:18443":
         handoff = session.get("live_handoff")
-        if isinstance(handoff, dict) and handoff.get("live_base_url") == previous_endpoint:
+        if isinstance(handoff, dict) and handoff.get("live_base_url") in {"https://16.16.110.32:18443", "https://13.53.110.120:18443"}:
             handoff["live_base_url"] = base_url
     manifest = manifest_from(result)
     if generation_changed(previous_manifest, manifest):
@@ -296,7 +296,7 @@ def student_is_ready(manifest: dict[str, Any]) -> bool:
 
 
 def do_login(args: argparse.Namespace) -> None:
-    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "https://13.53.110.120:18443")
+    configured=args.base_url or os.environ.get("NEOLABS_LAB_BASE_URL", "https://16.192.188.181:18443")
     try: base_url, discovery_url = resolve_gateway(configured, HOME_STATE)
     except ValueError as exc: fail(str(exc))
     base_url = validate_base_url(base_url)
