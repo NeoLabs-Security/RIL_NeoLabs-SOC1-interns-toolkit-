@@ -15,9 +15,9 @@ from urllib.parse import urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENV = ROOT / ".env"
-OLD = "16.16.110.32"
+OLD = {"16.16.110.32", "13.53.110.120"}
 parser = argparse.ArgumentParser()
-parser.add_argument("--public-ip", default="13.53.110.120")
+parser.add_argument("--public-ip", default="16.192.188.181")
 parser.add_argument("--apply", action="store_true")
 args = parser.parse_args()
 try:
@@ -42,7 +42,7 @@ for key, target in targets.items():
     old_url = new_lines[idx].split("=",1)[1].strip().strip("'\"")
     if old_url:
         parsed = urlsplit(old_url)
-        if parsed.scheme != "https" or parsed.hostname not in (OLD, args.public_ip, "localhost", "127.0.0.1") or parsed.port != 18443:
+        if parsed.scheme != "https" or parsed.hostname not in (OLD | {args.public_ip, "localhost", "127.0.0.1"}) or parsed.port != 18443:
             raise SystemExit("Refusing to overwrite an unrelated endpoint: " + key)
     new_lines[idx] = key + "=" + target + "\n"
     print(key + " -> " + target)

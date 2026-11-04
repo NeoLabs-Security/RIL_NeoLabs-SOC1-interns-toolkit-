@@ -73,7 +73,7 @@ jobs:
               raise SystemExit('Shared orchestrator must use module CLI entrypoints')
           # Both first-run launcher and CLI must default to the same live broker.
           core = Path('tools/neolabs.py').read_text(encoding='utf-8')
-          expected = 'https://13.53.110.120:18443'
+          expected = 'https://16.192.188.181:18443'
           if 'GATEWAY_URL="${NEOLABS_LAB_BASE_URL:-' + expected + '}"' not in common:
               raise SystemExit('Fresh Ubuntu launcher points to a different VCC broker')
           if 'os.environ.get("NEOLABS_LAB_BASE_URL", "' + expected + '")' not in core:
