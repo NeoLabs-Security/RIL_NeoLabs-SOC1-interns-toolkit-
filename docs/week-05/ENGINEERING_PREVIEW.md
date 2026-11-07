@@ -1,22 +1,25 @@
-# Week 05 — Poisoned Upload (SOC preview)
+# Week 05 — SOC standalone test guide (draft)
 
-**Under development; not a student launch announcement.**
-
-The Wazuh local rules file now includes:
-- `100190`: normal accepted synthetic W05 upload, level 3.
-- `100191`: accepted synthetic content mismatch in intentionally vulnerable release, level 10.
-- `100192`: denied synthetic W05 upload, level 5.
-- `100193`: confirmed Support quarantine action, level 5.
-
-All W05 rules depend on the existing canonical synthetic event rule `100100`. W04 rule IDs `100141/100142` are preserved. Actual Wazuh processing still requires an authorized W05 server exporter -> broker -> collector -> manager -> indexer chain.
-
-Offline-only case triage for a mentor-authorized, assigned-pod NDJSON export:
+**Authorized target:** localhost gateway forwarded from mentor's separate Week 5 test server (TCP 18600). Authenticate only with your mentor-issued, pod-scoped **W05 SOC Access Code**.
 
 ```bash
-python3 tools/week05_upload_triage.py --file ./approved-w05-events.ndjson \
-  --assigned-pod pod-01 --out ./w05-soc-triage.md
+python3 tools/week05_client.py login
+python3 tools/week05_client.py status
+python3 tools/week05_client.py target
+python3 tools/week05_client.py events
+python3 tools/week05_client.py logout
 ```
 
-The tool refuses cross-pod or nonsynthetic W05 records, preserves UTC event time and request IDs, and writes sanitized evidence. **This report is not proof the events were indexed in Wazuh.** The mentor must independently confirm rule 100191 and the exact event IDs in the central dashboard, plus rule 100193 after quarantine.
+`events` returns up to 20 current raw synthetic events from the **assigned pod only**. It is **not** a Wazuh dashboard or proof of index ingestion.
 
-Remaining integration: compatible W05 SOC resource publication, central broker routing, exporter sidecar, saved dashboard filters and Wazuh `wazuh-logtest` execution and complete indexed-event verification. Keep Week 04 dashboards and rules intact.
+New W05 Wazuh rules in the draft local rule file:
+- 100190: upload accepted (baseline)
+- 100191: content-mismatched file accepted by vulnerable release (high)
+- 100192: upload rejected (normal audit)
+- 100193: Support quarantined one synthetic upload
+
+The synthetic event contract preserves `schema_version=1.0`, `scenario_id=w05-poisoned-upload`, exact `pod_id`, `event_id`, UTC `event_time`, `request_id` and `metadata.reason_code`.
+
+For detached mentor-approved logs, `python3 tools/week05_upload_triage.py --file <approved.ndjson> --assigned-pod pod-01` produces a readable timeline. Wazuh live integration is a separate release gate and must show the actual event IDs in `wazuh-alerts-*`. No intern should claim indexing based only on this client.
+
+The existing `bash neolabs` Wazuh setup and scope commands remain unchanged for Week 4; Week 5 switching remains pending release integration.
