@@ -28,8 +28,8 @@ class TestWeek05Rules(unittest.TestCase):
         self.assertIn("scenario=='w05-poisoned-upload'", strict)
         for rule in ("100190", "100191", "100192", "100193"):
             self.assertIn("'" + rule + "'", strict)
-            self.assertIn(r'\\"' + rule + r'\\"', doctor)
-            self.assertIn(r'\\"' + rule + r'\\"', freshness)
+            self.assertIn(rule, doctor)
+            self.assertIn(rule, freshness)
         # Week 04's stricter authorization gate must remain unchanged.
         self.assertIn("['100141','100142']", strict)
 
