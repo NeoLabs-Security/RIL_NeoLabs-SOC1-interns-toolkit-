@@ -75,6 +75,15 @@ if (( EUID == 0 )) && [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != root ]]; then
   fail 'Do not run the whole NeoLabs launcher with sudo. Run it as the normal intern user; AutoFix elevates only OS operations that actually need it.'
 fi
 
+# Week05 SOC is a shared central dashboard, not a fresh local Docker/Wazuh
+# deployment. The saved-session hint only selects a safe path; the actual
+# authenticated broker scope is checked by tools.cli connect below.
+if [[ "$ACTION" == start && ! -f "${HOME}/.neolabs/soc/arena-session.json" ]] &&
+   python3 -m tools.week05_central; then
+  log 'Week 05 central SOC session detected; skipping local Docker/Wazuh setup.'
+  exec python3 -m tools.cli connect
+fi
+
 common_args=("$ACTION")
 if (( NO_BROWSER )); then common_args+=(--no-browser); fi
 
