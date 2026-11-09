@@ -21,6 +21,18 @@ class TestWeek05Rules(unittest.TestCase):
         for rule in ("100190", "100191", "100192", "100193"):
             self.assertIn(rule, script)
 
+    def test_all_local_wazuh_visibility_checks_include_week5_rule_ids(self):
+        strict = (ROOT / "wazuh-stack/scripts/verify-telemetry-pipeline.sh").read_text()
+        doctor = (ROOT / "wazuh-stack/scripts/doctor.sh").read_text()
+        freshness = (ROOT / "wazuh-stack/scripts/telemetry-freshness.sh").read_text()
+        self.assertIn("scenario=='w05-poisoned-upload'", strict)
+        for rule in ("100190", "100191", "100192", "100193"):
+            self.assertIn("'" + rule + "'", strict)
+            self.assertIn(r'\\"' + rule + r'\\"', doctor)
+            self.assertIn(r'\\"' + rule + r'\\"', freshness)
+        # Week 04's stricter authorization gate must remain unchanged.
+        self.assertIn("['100141','100142']", strict)
+
     def test_w05_rule_parsing_and_scope(self):
         root = ET.parse(RULES).getroot()
         rules = {r.attrib.get("id"): r for r in root.iter("rule")}
