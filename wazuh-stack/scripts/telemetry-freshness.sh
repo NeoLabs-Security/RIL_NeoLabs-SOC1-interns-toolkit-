@@ -33,7 +33,7 @@ PY
 pod="$(resolve_pod | tail -n1 | tr -d '\r\n')"
 [[ "${pod}" =~ ^pod-[0-9]{2}$ ]] || { printf '[WARN] Last-event freshness unavailable: no server-issued pod.\n'; exit 1; }
 
-query="{\"size\":1,\"sort\":[{\"timestamp\":{\"order\":\"desc\"}}],\"_source\":[\"timestamp\",\"data.event_time\",\"data.event_id\",\"data.event_type\",\"data.pod_id\"],\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\"]}}]}}}"
+query="{\"size\":1,\"sort\":[{\"timestamp\":{\"order\":\"desc\"}}],\"_source\":[\"timestamp\",\"data.event_time\",\"data.event_id\",\"data.event_type\",\"data.pod_id\"],\"query\":{\"bool\":{\"filter\":[{\"match_phrase\":{\"data.pod_id\":\"${pod}\"}},{\"terms\":{\"rule.id\":[\"100100\",\"100110\",\"100111\",\"100112\",\"100120\",\"100121\",\"100130\",\"100140\",\"100150\",\"100190\",\"100191\",\"100192\",\"100193\"]}}]}}}"
 response="$(printf '%s' "${query}" | docker compose --env-file .env exec -T \
   -e NEOLABS_INDEXER_PASSWORD="${WAZUH_INDEXER_PASSWORD}" wazuh.indexer sh -c \
   'curl -fsSk -u "admin:${NEOLABS_INDEXER_PASSWORD}" -H "Content-Type: application/json" --data-binary @- "https://localhost:9200/wazuh-alerts-*/_search"' 2>/dev/null || true)"

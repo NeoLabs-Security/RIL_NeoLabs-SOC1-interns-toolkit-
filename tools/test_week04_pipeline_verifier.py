@@ -27,6 +27,8 @@ elif 'wazuh.indexer' in a:
     ids=next(f['terms']['rule.id'] for f in filters if 'terms' in f)
     if os.environ.get('EXPECT_WEEK4')=='yes':
         assert ids==['100141','100142'],ids
+    elif os.environ.get('EXPECT_WEEK5')=='yes':
+        assert ids==['100190','100191','100192','100193'],ids
     else:
         assert '100120' in ids
     if os.environ.get('EXPECT_EVENT'):
@@ -56,6 +58,8 @@ class Week04PipelineVerifierTests(unittest.TestCase):
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'], **settings)
             if scenario == 'w04-broken-gate':
                 env['EXPECT_WEEK4'] = 'yes'
+            elif scenario == 'w05-poisoned-upload':
+                env['EXPECT_WEEK5'] = 'yes'
             command = ['bash', str(script), '--scenario-id', scenario]
             if event:
                 command += ['--event-id', event]
@@ -75,6 +79,19 @@ class Week04PipelineVerifierTests(unittest.TestCase):
 
     def test_no_indexed_week4_event_fails_readiness(self):
         result = self.run_verifier(FAKE_NO_HITS='yes')
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn('VCC_TELEMETRY_SEARCHABLE', result.stdout)
+
+    def test_week5_upload_alerts_are_searchable_and_exact_event_is_scoped(self):
+        # Reproduces the reported false-negative: indexed rule 100191 was
+        # excluded by the legacy allowlist, so startup waited and restarted.
+        result = self.run_verifier(scenario='w05-poisoned-upload', event='upload-accepted-event-id')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('VCC_TELEMETRY_SEARCHABLE', result.stdout)
+        self.assertNotIn('[WAIT]', result.stderr)
+
+    def test_week5_with_no_indexed_upload_alert_still_fails_closed(self):
+        result = self.run_verifier(scenario='w05-poisoned-upload', FAKE_NO_HITS='yes')
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn('VCC_TELEMETRY_SEARCHABLE', result.stdout)
 
