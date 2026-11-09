@@ -58,13 +58,17 @@ jobs:
           if 'exec bash internal/common/Start-NeoLabsSOC.sh' not in linux:
               raise SystemExit('Linux root launcher must delegate post-runtime startup to shared orchestrator')
 
+          # W05 central SOC has an authenticated fast path before local Docker.
+          # The older local-stack path still has exactly one post-preparation
+          # connect authority, but now there is also a central connect authority.
+          central = common.index('python3 -m tools.week05_central')
           prep = common.index('ensure-prepared.sh')
-          login = common.index('tools.cli login')
-          connect = common.index('tools.cli connect')
-          if not (prep < login < connect):
-              raise SystemExit('Wazuh preparation/image preload must happen before login and connect')
-          if common.count('tools.cli connect') != 1:
-              raise SystemExit('Shared SOC orchestrator must have one stack-start/connect authority')
+          legacy_login = common.rindex('tools.cli login')
+          legacy_connect = common.rindex('tools.cli connect')
+          if not (central < prep < legacy_login < legacy_connect):
+              raise SystemExit('Central SOC must route first; legacy Wazuh prep must precede legacy login/connect')
+          if common.count('tools.cli connect') != 2:
+              raise SystemExit('Expected exactly central and legacy SOC connect authorities')
           if 'health-check.sh --wait' in common:
               raise SystemExit('Shared orchestrator must not duplicate the health wait already owned by wazuh start.sh')
 
