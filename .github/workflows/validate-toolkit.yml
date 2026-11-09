@@ -136,8 +136,12 @@ jobs:
           missing = [name for name, ok in required.items() if not ok]
           if missing: raise SystemExit('Telemetry/startup contract incomplete: ' + ', '.join(missing))
 
-          if not (common.index('ensure-prepared.sh') < common.index('python3 -m tools.cli login') < common.index('python3 -m tools.cli connect')):
-              raise SystemExit('Shared startup ordering must be prepare/download -> login -> connect')
+          # The W05 central workflow bypasses local Wazuh, while the legacy
+          # local path must retain the original prepare -> login -> connect order.
+          if not (common.index('python3 -m tools.week05_central') < common.index('log \'Ensuring the complete Wazuh installation')):
+              raise SystemExit('W05 central path must precede legacy preparation')
+          if not (common.index('ensure-prepared.sh') < common.rindex('python3 -m tools.cli login') < common.rindex('python3 -m tools.cli connect')):
+              raise SystemExit('Legacy startup ordering must remain prepare/download -> login -> connect')
           for duplicate in ('install_docker_ubuntu_debian()', 'ensure_docker_access()', 'start_docker_service()'):
               if duplicate in linux_root: raise SystemExit('Linux root duplicates AutoFix: ' + duplicate)
           for child in ('Repair-NeoLabsRuntime.ps1','Test-NeoLabsDockerRuntime.ps1','Recover-DockerDesktopBackend.ps1'):
