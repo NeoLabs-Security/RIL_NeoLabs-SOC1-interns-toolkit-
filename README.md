@@ -1,6 +1,6 @@
 # NeoLabs SOC Level 1 Intern Toolkit
 
-**Week 5 SOC (Operation Poisoned Upload):** [Central Wazuh student quickstart](docs/week-05/STUDENT_RUNBOOK.md). From this toolkit, run `bash neolabs login --pod XX`, then `bash neolabs connect`; use your existing mentor-issued central Wazuh dashboard. Week 5 `WAZUH_LIVE` does **not** require a new local Docker/Wazuh installation. The original local stack launcher remains available for scenarios that explicitly publish local LIVE/replay telemetry.
+**Week 5 SOC (Operation Poisoned Upload):** [Local Wazuh workstation + live telemetry quickstart](docs/week-05/STUDENT_RUNBOOK.md). Run `bash start-neolabs-soc.sh` to install/prepare and start the local Wazuh stack, or after setup run `bash neolabs login --pod XX` then `bash neolabs connect`. Week 5 `INTERACTIVE_TEST` with an approved SOC `WAZUH_LIVE` scope connects the assigned pod via the existing mTLS enrollment; the mentor's central Wazuh dashboard is a separate shared resource.
 
 **Week 4 student quickstart:** [SOC runbook (central dashboard, rule 100141/100142, evidence and submissions)](docs/week-04/STUDENT_RUNBOOK.md). The toolkit currently runs a local stack; mentors must separately verify central Wazuh ingestion before calling the shared dashboard ready.
 

@@ -776,43 +776,6 @@ def do_evidence(_: argparse.Namespace) -> None:
     print(f"✓ Downloaded {downloaded} new approved evidence file(s) for {manifest['pod_id']} to {EVIDENCE_DIR}.")
 
 
-def week05_central_soc_scope(manifest: dict[str, Any]) -> bool:
-    """Only the authenticated, current Week05 WAZUH_LIVE SOC assignment qualifies.
-
-    This is a centrally hosted dashboard workflow, NOT a local telemetry
-    enrolment or permission to read other pods' data.
-    """
-    if (manifest.get("scenario_id") != "w05-poisoned-upload"
-            or manifest.get("track") != "SOC"
-            or not student_is_ready(manifest)):
-        return False
-    if str(manifest.get("runtime_mode") or "").upper() not in {"INTERACTIVE_TEST", "LIVE"}:
-        return False
-    resource = manifest.get("resources")
-    return (isinstance(resource, dict)
-            and resource.get("resource_type") == "soc_enrolment.v1"
-            and resource.get("schema_version") == 1
-            and resource.get("scope_status") == "WAZUH_LIVE"
-            and resource.get("central_wazuh_view") is True
-            and isinstance(resource.get("soc_assignment_id"), str)
-            and bool(resource["soc_assignment_id"].strip())
-            and resource.get("pod_id", manifest.get("pod_id")) == manifest.get("pod_id"))
-
-
-def connect_week05_central_soc(manifest: dict[str, Any]) -> None:
-    """Week05 SOC uses the existing shared Wazuh index, not local Wazuh."""
-    if not week05_central_soc_scope(manifest):
-        fail("Week 05 SOC central Wazuh scope is not published for your assignment; contact the mentor")
-    pod = str(manifest["pod_id"])
-    print("✓ WEEK 05 CENTRAL SOC ACCESS READY")
-    print(f"✓ Authorized pod: {pod}; scenario: w05-poisoned-upload")
-    print("✓ Scope: central Wazuh dashboard (no local Wazuh Docker installation or SSH tunnel)")
-    print("Open the mentor-issued central Wazuh dashboard using your authorized SOC credentials.")
-    print("Threat Hunting: filter data.scenario_id=w05-poisoned-upload and data.pod_id=" + pod)
-    print("Look for W05 rule IDs 100190, 100191, 100192, 100193 and match exact event IDs.")
-    print("The broker has verified assignment scope; actual indexed events must still be checked in Wazuh.")
-
-
 def do_connect(_: argparse.Namespace) -> None:
     arena = read_arena_session()
     if arena:
@@ -824,11 +787,23 @@ def do_connect(_: argparse.Namespace) -> None:
     if not student_is_ready(manifest):
         print("[WAIT] Current scenario is deployed but student access has not been published yet.")
         return
-    # Week05 deliberately reuses the single CENTRAL Wazuh dashboard. The
-    # current broker publishes INTERACTIVE_TEST for upload/dashboard tests,
-    # which is not the older, local-mTLS LIVE mode.
+    # Week05 is an interactive *scenario* but SOC remains a real local Wazuh
+    # workstation with an authenticated, pod-scoped live mTLS telemetry feed.
+    # The central dashboard can be used separately; it does not replace local
+    # Docker/Wazuh startup. Fail closed for non-live SOC resources.
     if manifest.get("scenario_id") == "w05-poisoned-upload":
-        connect_week05_central_soc(manifest)
+        resource = manifest.get("resources")
+        if (manifest.get("track") != "SOC"
+                or not isinstance(resource, dict)
+                or resource.get("resource_type") != "soc_enrolment.v1"
+                or resource.get("schema_version") != 1
+                or resource.get("scope_status") != "WAZUH_LIVE"
+                or not isinstance(resource.get("soc_assignment_id"), str)
+                or not resource["soc_assignment_id"].strip()
+                or resource.get("pod_id", manifest.get("pod_id")) != manifest.get("pod_id")
+                or str(manifest.get("runtime_mode") or "").upper() not in ("INTERACTIVE_TEST", "LIVE")):
+            fail("Week 05 live SOC workstation access is not published for your assignment")
+        connect_soc_live(session, manifest)
         return
     # Protocol v2 keeps readiness in lab_state. Offline delivery is selected by
     # runtime_mode so the fallback never changes normal VCC discovery/defaults.

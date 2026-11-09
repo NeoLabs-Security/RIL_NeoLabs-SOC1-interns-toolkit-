@@ -29,13 +29,6 @@ fi
 # first-run AutoFix grants Docker access. That parent shell retains its stale
 # groups; refresh only Docker-using NeoLabs commands in an authorized child.
 # The full Linux launcher already refreshes its own Docker-using process.
-# W05 central SOC commands do not need Docker permissions. A saved session
-# is only a routing hint; the broker remains authoritative inside tools.cli.
-if [[ "${1:-}" == connect || "${1:-}" == doctor ]] &&
-   python3 -m tools.week05_central; then
-  exec python3 -m tools.cli "$@"
-fi
-
 case "${1:-}" in
   connect|doctor|arena|disconnect|ip-blacklist|ip-watchlist)
     if [[ "$NEOLABS_HOST_MODE" == linux ]]; then
