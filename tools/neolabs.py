@@ -793,7 +793,8 @@ def do_connect(_: argparse.Namespace) -> None:
     # Docker/Wazuh startup. Fail closed for non-live SOC resources.
     if manifest.get("scenario_id") == "w05-poisoned-upload":
         resource = manifest.get("resources")
-        if (not isinstance(resource, dict)
+        if (manifest.get("track") != "SOC"
+                or not isinstance(resource, dict)
                 or resource.get("resource_type") != "soc_enrolment.v1"
                 or resource.get("schema_version") != 1
                 or resource.get("scope_status") != "WAZUH_LIVE"
