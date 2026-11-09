@@ -126,8 +126,14 @@ import json,sys
 pod,scenario,event_id=sys.argv[1:4]
 filters=[
     {'match_phrase': {'data.pod_id': pod}},
-    {'terms': {'rule.id': ['100141','100142'] if scenario=='w04-broken-gate' else
-        ['100100','100110','100111','100112','100120','100121','100130','100140','100141','100142','100150']}},
+    # Select the correct scenario-specific alert families. The Week05 upload
+    # alerts are 100190..100193; omitting these falsely reports zero hits even
+    # when the assigned pod's uploads are already visible in Threat Hunting.
+    {'terms': {'rule.id': (
+        ['100141','100142'] if scenario=='w04-broken-gate' else
+        ['100190','100191','100192','100193'] if scenario=='w05-poisoned-upload' else
+        ['100100','100110','100111','100112','100120','100121','100130','100140','100141','100142','100150']
+    )}},
 ]
 if scenario:
     # Older replay archives wrap the canonical VCC event in `payload`; LIVE events
