@@ -75,9 +75,21 @@ bash ./scripts/repair-certificate-permissions.sh
 # access session from appearing to hang behind a first-use image download.
 bash ./scripts/prepare-runtime-images.sh
 
-# Host VCC credentials deliberately remain owner-only. Stage only the collector
-# inputs into a Docker volume owned by the image's unprivileged collector user.
-bash ./scripts/stage-vcc-secrets.sh
+# Host VCC credentials deliberately remain owner-only. On a FIRST run,
+# before NeoLabs authentication, there is only an installation-id and no SOC
+# client certificate or arena token. Do not fail the entire Wazuh preparation
+# by attempting to prove a not-yet-issued collector credential. The post-login
+# start.sh runs ensure-prepared again and stages it once actually present.
+# Never silently allow an incomplete/mismatched mTLS certificate set.
+if [[ -s secrets/vcc/arena-token ]] || \
+   [[ -s secrets/vcc/client.crt && -s secrets/vcc/client.key && -s secrets/vcc/ca.crt ]]; then
+  bash ./scripts/stage-vcc-secrets.sh
+elif [[ -e secrets/vcc/arena-token || -e secrets/vcc/client.crt || \
+        -e secrets/vcc/client.key || -e secrets/vcc/ca.crt ]]; then
+  fail 'VCC collector credential set is incomplete; request mentor assistance.'
+else
+  log 'No SOC collector credential issued yet; collector staging deferred until authenticated enrollment.'
+fi
 
 # The collector is intentionally non-root. Repair the named telemetry volume now
 # so both fresh volumes and volumes created by older launcher iterations are

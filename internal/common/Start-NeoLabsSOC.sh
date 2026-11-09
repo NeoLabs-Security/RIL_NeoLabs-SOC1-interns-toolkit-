@@ -71,6 +71,15 @@ find internal/common wazuh-stack/scripts -type f -name '*.sh' -exec chmod u+x {}
 export NEOLABS_LAB_BASE_URL="$GATEWAY_URL"
 export NEOLABS_HOST_MODE="$HOST_MODE"
 
+# The same centrally hosted W05 SOC workflow is also reachable through
+# the shared orchestrator used on supported Windows/WSL machines. Do not
+# run legacy local Wazuh preparation for a current W05 central session.
+if [[ "$ACTION" == start && ! -f "${HOME}/.neolabs/soc/arena-session.json" ]] &&
+   python3 -m tools.week05_central; then
+  log 'Week 05 central Wazuh access; no local stack preparation is needed.'
+  exec python3 -m tools.cli connect
+fi
+
 case "$ACTION" in
   login)
     exec python3 -m tools.cli login

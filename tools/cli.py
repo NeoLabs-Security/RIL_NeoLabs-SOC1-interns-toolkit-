@@ -86,6 +86,19 @@ def do_doctor() -> int:
         print("[WAIT] 2/7 Current release — scenario is deployed but student access has not been published yet.")
         return 0
 
+    # Week05 uses a shared central Wazuh dashboard. This command proves current
+    # broker authorization but deliberately cannot claim remote index health.
+    # Local Docker/Filebeat checks are irrelevant to this SOC deployment.
+    if manifest.get("scenario_id") == "w05-poisoned-upload":
+        if not core.week05_central_soc_scope(manifest):
+            print("[FAIL] Week05 central SOC enrollment is not authorized for this pod.", file=sys.stderr)
+            return 2
+        print("[PASS] 2/7 Week05 central SOC broker scope — WAZUH_LIVE; no local Wazuh required.")
+        print("[INFO] Open the authorized central dashboard; filter by scenario and assigned pod.")
+        print("[INFO] Confirm rule IDs 100190–100193 against actual indexed event IDs.")
+        print("[INFO] This local command does not prove central Wazuh ingestion or visibility.")
+        return 0
+
     replay_packs = "unknown"
     if lab_state in {"REPLAY", "CLOUD_LIVE", "ENDPOINT_LIVE"}:
         try:
